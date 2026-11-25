@@ -13,6 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
+  var APP_VERSION = '1.2 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -883,6 +884,7 @@
       m === 'LIVE' ? 'Connected to the Google Sheet. Every device using this URL sees the same stock.' :
       'Not connected: demo mode. Paste the web app URL from the Apps Script setup to go live.';
     if (document.activeElement !== $('cfgUrl')) $('cfgUrl').value = cfg.url || '';
+    $('appVer').textContent = 'App version ' + APP_VERSION;
     $('meInfo').textContent = signedIn() ? cfg.user + ' · ' + (ROLES[cfg.role] || 'Mechanic') + (cfg.user === ADMIN_NAME ? ' (admin PIN: use it to create the first supervisor)' : '') : 'Not signed in';
     var staff = snap.staff || [];
     $('staffList').innerHTML = staff.length ? staff.map(function (x) {
@@ -991,6 +993,7 @@
     $('siConn').style.display = EMBED ? 'none' : '';
     $('siUrl').value = cfg.url || '';
     var m = mode();
+    $('siVer').textContent = 'App version ' + APP_VERSION;
     $('siConnHint').textContent = m === 'DEMO' ? 'Not connected yet: this is demo mode with sample data (demo PINs: Mechanic A 1111, Mechanic B 2222, Supervisor 9999, Admin 1234). Type your workshop code to connect to your stock.' : 'Connected to your stock sheet.';
     if (m === 'DEMO') $('siConn').open = true;
     setStatus();
@@ -1065,7 +1068,14 @@
   window.addEventListener('online', function () { online = true; flush(); });
   setInterval(poll, 8000);
   setInterval(flush, 15000);
-  if (!EMBED && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
+  if (!EMBED && 'serviceWorker' in navigator && location.protocol === 'https:') {
+    var hadSw = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').then(function (reg) { reg.update(); }).catch(function () {});
+    // a new version took over: reload once so the screens match it (pending actions are safe in the queue)
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (hadSw && !sessionStorage.getItem('inv.reloaded')) { sessionStorage.setItem('inv.reloaded', '1'); location.reload(); }
+    });
+  }
 
   setStatus();
   // Setup link: <app link>#connect=<Apps Script /exec URL> connects this device in one tap.
