@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.12 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.13 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -766,7 +766,7 @@
   }
   function renderLabelBanner() {
     var n = isSup() ? needLabel().length : 0;
-    $('labelBanner').innerHTML = n ? '<button type="button" class="orderbar labelbar" id="labelOpen"><b>🏷 ' + n + ' new box' + (n > 1 ? 'es' : '') + ' need' + (n > 1 ? '' : 's') + ' a label</b><span>print from the Labels tab</span><i>Labels ›</i></button>' : '';
+    $('labelBanner').innerHTML = n ? '<button type="button" class="orderbar labelbar" id="labelOpen"><b>🏷 ' + n + ' box' + (n > 1 ? 'es' : '') + ' with no printed label yet</b><span>print from the Labels tab</span><i>Labels ›</i></button>' : '';
     if ($('labelOpen')) $('labelOpen').onclick = function () {
       var bins = needLabel().filter(function (k) { return kindOf(k) === 'BIN'; }).length;
       lbMode = bins ? 'BIN' : 'TOTE'; lbSel = {}; $('labelNew').checked = true;
@@ -1343,13 +1343,37 @@
     });
     $('labelList').innerHTML = pool.length ? pool.map(function (b) {
       var p = P[b.rows[0].sku], mixed = b.rows.length > 1;
-      return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · ' +
+      return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="lqrp" data-qr="' + esc(b.loc) + '" title="Tap to see the QR code big"></span><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · ' +
         (mixed ? 'Mixed box · ' + b.rows.length + ' parts' : esc(p.name)) + '</div><div class="t2">' +
         (mixed ? esc(b.rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) : 'SKU ' + esc(codeOf(p)) + (b.type === 'TOTE' ? ' · qty ' + num(b.rows[0].qty) : '')) + '</div></div>' +
-        (b.rows.some(function (r) { return !r.label_printed; }) ? '<span class="pill err">NEW · no label yet</span>' : '<span class="pill done">Printed ' + esc(b.rows[0].label_printed) + '</span>') + '</label>';
-    }).join('') : '<p class="hint">' + ($('labelNew').checked ? 'All ' + (lbMode === 'BIN' ? 'blue bin' : 'white box') + ' labels are printed. Untick "Only boxes without a label" to print one again.' : 'No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.') + '</p>';
+        (b.rows.some(function (r) { return !r.label_printed; }) ? '<span class="pill err">Not printed yet</span>' : '<span class="pill done">Printed ' + esc(b.rows[0].label_printed) + '</span>') + '</label>';
+    }).join('') : '<p class="hint">' + ($('labelNew').checked ? 'All ' + (lbMode === 'BIN' ? 'blue bin' : 'white box') + ' labels are printed. Untick "Only labels not printed yet" to print one again.' : 'No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.') + '</p>';
     qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
     $('labelPrint').textContent = 'Print selected labels (' + n + ')';
+    fillQrs();
+  }
+  /** Draws the QR code of every box in the Labels list (the code is the box code, e.g. C1-T001). Tap one to see it big. */
+  function fillQrs() {
+    var els = qsa('#labelList [data-qr]'); if (!els.length) return;
+    loadScript(QR_LIB).then(function () {
+      var tries = 0, go = function () {
+        if (!window.qrcode) { if (tries++ < 20) setTimeout(go, 150); return; }
+        qsa('#labelList [data-qr]').forEach(function (el) {
+          if (!el.innerHTML) el.innerHTML = qrSvg(el.dataset.qr);
+          el.onclick = function (e) { e.preventDefault(); e.stopPropagation(); bigQr(el.dataset.qr); };
+        });
+      };
+      go();
+    }).catch(function () {
+      qsa('#labelList [data-qr]').forEach(function (el) { el.textContent = 'QR'; el.classList.add('off'); });
+    });
+  }
+  function bigQr(loc) {
+    var rows = inBox(loc);
+    modal('<h3 class="formtitle mono" style="text-align:center">' + esc(loc) + '</h3><div class="qrbig">' + qrSvg(loc) + '</div>' +
+      '<p class="hint" style="text-align:center">' + KIND[kindOf(loc)].name + ' · ' + esc(rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) + '</p>' +
+      '<p class="hint" style="text-align:center">This QR code goes on the printed label. Scanning it opens this box.</p>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button></div>');
   }
   function qrSvg(text) {
     if (!window.qrcode) return '';
