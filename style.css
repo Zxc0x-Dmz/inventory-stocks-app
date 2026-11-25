@@ -1,7 +1,8 @@
 :root {
   --bg: #f3f4f6; --card: #fff; --ink: #14181f; --mute: #5f6672; --line: #dde0e5;
   --top: #14181f; --accent: #0b63ce; --good: #17803d; --bad: #c62828; --warn: #b45309;
-  --ok4: #f2c200; --nb3: #d7263d; --nb2: #1f9d55; --uni: #ffffff;
+  --ok4: #1565c0; --nb3: #f57c00; --nb2: #1f9d55; --uni: #ffffff;   /* OKAI 400C blue · C1 orange · A200 e-bike green */
+  --brand: #f2c200;
   --r: 12px;
 }
 * { box-sizing: border-box; }
@@ -11,11 +12,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--top); color: #fff; }
 .brand { font-weight: 700; letter-spacing: .2px; flex: 1; white-space: nowrap; }
-.logo { color: var(--ok4); }
+.logo { color: var(--brand); }
 .status { display: flex; align-items: center; gap: 6px; font-size: 13px; opacity: .9; white-space: nowrap; }
 .status .dot { width: 9px; height: 9px; border-radius: 50%; background: #888; }
 .status.live .dot { background: #3ddc84; }
-.status.demo .dot { background: var(--ok4); }
+.status.demo .dot { background: var(--brand); }
 .status.off .dot { background: #ff6b6b; }
 .me { background: #2a303b; border: 0; color: #fff; border-radius: 20px; padding: 5px 12px; font-size: 13px; cursor: pointer; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -65,7 +66,7 @@ button { cursor: pointer; }
 /* part card with model colour */
 .card { background: var(--card); border-radius: var(--r); border: 1px solid var(--line); overflow: hidden; margin-bottom: 6px; }
 .band { padding: 6px 14px; font-weight: 700; font-size: 13px; letter-spacing: .5px; display: flex; justify-content: space-between; }
-.m-OK4 .band, .band.m-OK4 { background: var(--ok4); color: #111; }
+.m-OK4 .band, .band.m-OK4 { background: var(--ok4); color: #fff; }
 .m-NB3 .band, .band.m-NB3 { background: var(--nb3); color: #fff; }
 .m-NB2 .band, .band.m-NB2 { background: var(--nb2); color: #fff; }
 .m-UNI .band, .band.m-UNI { background: #fff; color: #111; border-bottom: 2px solid #111; }
@@ -320,8 +321,8 @@ body.sup .sup-hide { display: none !important; }
 .lab .lsku { font-weight: 700; font-family: "Consolas", monospace; font-size: 9pt; word-break: break-all; }
 .lab .lname { font-size: 7.5pt; line-height: 1.15; max-height: 3.5em; overflow: hidden; }
 .lab .lloc { font-weight: 800; font-size: 13pt; letter-spacing: .3px; }
-.lab.c-OK4 { border-color: #d4a900; } .lab.c-OK4 .lh { background: #f2c200; }
-.lab.c-NB3 { border-color: #d7263d; } .lab.c-NB3 .lh { background: #d7263d; color: #fff; }
+.lab.c-OK4 { border-color: #1565c0; } .lab.c-OK4 .lh { background: #1565c0; color: #fff; }
+.lab.c-NB3 { border-color: #f57c00; } .lab.c-NB3 .lh { background: #f57c00; color: #fff; }
 .lab.c-NB2 { border-color: #1f9d55; } .lab.c-NB2 .lh { background: #1f9d55; color: #fff; }
 .lab.c-UNI { border-color: #000; } .lab.c-UNI .lh { background: #fff; border-bottom: .6mm solid #000; }
 .tote { margin: 8mm; border-width: 2.5mm; border-radius: 4mm; }
