@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#14181f">
+<title>Inventory/Stocks</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Stocks">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">▦</span> <span class="full">Inventory/</span>Stocks</div>
+  <div class="status" id="status" title="Connection">
+    <span class="dot"></span><span id="statusText">Starting…</span>
+  </div>
+  <button class="me" id="meBtn" title="Signed-in person"></button>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="take" class="on"><span>⇩</span>Take</button>
+  <button data-tab="restock"><span>⇪</span>Restock</button>
+  <button data-tab="stock"><span>☰</span>Stock</button>
+  <button data-tab="count"><span>✓</span>Count</button>
+  <button data-tab="labels"><span>▤</span>Labels</button>
+  <button data-tab="setup"><span>⚙</span>Setup</button>
+</nav>
+
+<main>
+  <!-- TAKE / POS -->
+  <section id="tab-take" class="tab on">
+    <div class="seg" id="actionSeg">
+      <button data-act="OUT" class="on">Take out</button>
+      <button data-act="RETURN">Return</button>
+      <button data-act="SCRAP">Damaged</button>
+      <button data-act="RECEIVE">Receive</button>
+    </div>
+    <div class="scanrow">
+      <input id="scanInput" class="scan" placeholder="Scan bin or part barcode" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <button class="cam" data-cam="scanInput" title="Scan with camera">📷</button>
+    </div>
+    <div id="takeCard" class="card hidden"></div>
+    <div id="takeForm" class="hidden">
+      <label class="lbl">Quantity</label>
+      <div class="stepper">
+        <button data-step="-1">−</button><input id="takeQty" type="number" inputmode="numeric" min="1" value="1"><button data-step="1">+</button>
+      </div>
+      <div id="whoRow">
+        <label class="lbl">Scooter / bike ID</label>
+        <div class="scanrow">
+          <input id="takeVehicle" placeholder="Scan vehicle QR or type ID" autocomplete="off" autocapitalize="characters">
+          <button class="cam" data-cam="takeVehicle" title="Scan vehicle QR">📷</button>
+        </div>
+      </div>
+      <label class="lbl">Note (optional)</label>
+      <input id="takeNote" placeholder="e.g. fender cracked in transit">
+      <p class="hint" id="takeWho"></p>
+      <button id="takeGo" class="big go">Confirm</button>
+    </div>
+    <h3 class="sub">This device, today</h3>
+    <div id="recent" class="list"></div>
+  </section>
+
+  <!-- RESTOCK -->
+  <section id="tab-restock" class="tab">
+    <div class="seg" id="restockSeg">
+      <button data-rs="open" class="on">Break seal → bin</button>
+      <button data-rs="seal">Seal a tote</button>
+    </div>
+    <p class="hint" id="restockHint">Scan the clear top tote. Its stock moves into the blue picking bin.</p>
+    <div class="scanrow">
+      <input id="restockInput" class="scan" placeholder="Scan tote label (T-0001)" autocomplete="off" autocapitalize="characters">
+      <button class="cam" data-cam="restockInput">📷</button>
+    </div>
+    <div id="restockCard" class="card hidden"></div>
+    <div id="restockForm" class="hidden">
+      <div id="rsDestRow">
+        <label class="lbl">Into picking bin</label>
+        <select id="rsDest"></select>
+      </div>
+      <label class="lbl" id="rsQtyLbl">Quantity to move</label>
+      <div class="stepper">
+        <button data-step="-1">−</button><input id="rsQty" type="number" inputmode="numeric" min="1" value="1"><button data-step="1">+</button>
+      </div>
+      <button id="rsGo" class="big go">Move stock</button>
+    </div>
+  </section>
+
+  <!-- STOCK -->
+  <section id="tab-stock" class="tab">
+    <div class="filters">
+      <input id="stockSearch" placeholder="Search name, SKU, bin, NetSuite no." autocomplete="off">
+      <div class="chips" id="modelChips"></div>
+      <label class="tog"><input type="checkbox" id="lowOnly"> Low stock only</label>
+      <label class="tog"><input type="checkbox" id="stockedOnly" checked> Has a bin</label>
+    </div>
+    <div id="stockSummary" class="summary"></div>
+    <div class="tablewrap"><table class="grid" id="stockTable"></table></div>
+  </section>
+
+  <!-- COUNT -->
+  <section id="tab-count" class="tab">
+    <div class="countHead">
+      <div>
+        <h3 id="schedTitle">Today's count</h3>
+        <p class="hint" id="schedHint"></p>
+      </div>
+      <select id="schedDay">
+        <option value="1">Mon · OK4 A-items</option>
+        <option value="2">Tue · NB3 A-items</option>
+        <option value="3">Wed · NB2 A-items</option>
+        <option value="4">Thu · B-items shelf</option>
+        <option value="5">Fri · C-items fasteners</option>
+        <option value="0">Overdue (any)</option>
+      </select>
+    </div>
+    <div class="scanrow">
+      <input id="countInput" class="scan" placeholder="Scan a bin to count it" autocomplete="off" autocapitalize="characters">
+      <button class="cam" data-cam="countInput">📷</button>
+    </div>
+    <div id="schedList" class="list"></div>
+    <details class="review" id="reviewBox">
+      <summary>Supervisor: count differences to review <b id="reviewN">0</b></summary>
+      <div id="reviewList" class="list"></div>
+    </details>
+  </section>
+
+  <!-- LABELS -->
+  <section id="tab-labels" class="tab">
+    <div class="seg" id="labelSeg">
+      <button data-lb="BIN" class="on">Bin labels</button>
+      <button data-lb="TOTE">Tote seal labels</button>
+    </div>
+    <div class="filters">
+      <input id="labelSearch" placeholder="Filter: rack (R1), model (OK4), SKU, name" autocomplete="off">
+      <select id="labelLayout">
+        <option value="3x8">A4 · 24 per sheet (70 × 37 mm)</option>
+        <option value="3x7">A4 · 21 per sheet (70 × 42 mm)</option>
+        <option value="2x7">A4 · 14 per sheet (99 × 38 mm)</option>
+        <option value="2x4">A4 · 8 per sheet (99 × 67 mm)</option>
+      </select>
+      <label class="tog"><input type="checkbox" id="labelAll"> Select all shown</label>
+    </div>
+    <div id="labelList" class="list compact"></div>
+    <button id="labelPrint" class="big go">Print selected labels</button>
+    <p class="hint">Print on A4 sticker paper. In the print dialog choose the Brother printer, Scale 100% / Actual size, Margins: none.</p>
+  </section>
+
+  <!-- SETUP -->
+  <section id="tab-setup" class="tab">
+    <div class="panel">
+      <h3>Connection</h3>
+      <p class="hint" id="connHint"></p>
+      <div id="connFields">
+        <label class="lbl">Apps Script web app URL (ends in /exec)</label>
+        <input id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+      </div>
+      <button id="cfgSave" class="big">Save and connect</button>
+    </div>
+    <div class="panel">
+      <h3>Signed in</h3>
+      <p class="hint" id="meInfo"></p>
+      <button id="signOut" class="big">Sign out</button>
+    </div>
+    <p class="hint sup-hide">Locations, parts and staff can only be changed by a supervisor.</p>
+    <div class="panel sup-only">
+      <h3>Staff</h3>
+      <p class="hint">Each person signs in with their own PIN. Mechanics can take, return, write off, receive, restock, seal and count. Supervisors can also accept count differences and change locations, parts and staff.</p>
+      <div class="row2">
+        <div><label class="lbl">Name</label><input id="staffName" placeholder="e.g. Ahmed" autocomplete="off"></div>
+        <div><label class="lbl">Role</label><select id="staffRole"><option value="mechanic">Mechanic</option><option value="supervisor">Supervisor</option></select></div>
+      </div>
+      <label class="lbl">PIN (4 to 8 digits)</label>
+      <input id="staffPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8">
+      <button id="staffAdd" class="big">Add person</button>
+      <div id="staffList" class="list compact" style="margin-top:12px"></div>
+    </div>
+    <div class="panel sup-only">
+      <h3>Add / edit a bin or tote</h3>
+      <p class="hint">Bins: R1-S3-B04 (or R1-S3-B04-A for a divided bin). Sealed totes: T-0001. Opening quantity is only used for a new location and is logged.</p>
+      <div class="row2">
+        <div><label class="lbl">Location</label><input id="locId" placeholder="R1-S3-B04" autocapitalize="characters"></div>
+        <div><label class="lbl">Part SKU</label><input id="locSku" list="skuList" placeholder="OK4-ELC-CTRL" autocapitalize="characters"></div>
+      </div>
+      <div class="row2">
+        <div><label class="lbl">Low-stock minimum</label><input id="locMin" type="number" inputmode="numeric" value="2"></div>
+        <div><label class="lbl">Opening quantity</label><input id="locQty" type="number" inputmode="numeric" value="0"></div>
+      </div>
+      <div id="locSkuName" class="hint"></div>
+      <button id="locSave" class="big">Save location</button>
+    </div>
+    <div class="panel sup-only">
+      <h3>Load many bins at once</h3>
+      <p class="hint">One per line: <code>location, SKU, quantity, minimum</code>. Use this to enter today's year-end count. Lines for locations that already exist are skipped.</p>
+      <textarea id="bulkText" rows="6" placeholder="R1-S1-B01, OK4-ELC-CTRL, 6, 2&#10;R1-S1-B02, OK4-BDY-RFND, 14, 4&#10;T-0001, OK4-ELC-CTRL, 20"></textarea>
+      <button id="bulkGo" class="big">Load lines</button>
+      <div id="bulkOut" class="hint"></div>
+    </div>
+    <div class="panel sup-only">
+      <h3>New part</h3>
+      <p class="hint">SKU format MODEL-SYSTEM-PART, e.g. <code>NB3-BDY-RFND</code>. Systems: ELC electrical, WHL wheels &amp; brakes, BDY body &amp; frame, DRV drivetrain, FST fasteners.</p>
+      <div class="row2">
+        <div><label class="lbl">SKU</label><input id="partSku" autocapitalize="characters"></div>
+        <div><label class="lbl">ABC class</label><select id="partAbc"><option>A</option><option selected>B</option><option>C</option></select></div>
+      </div>
+      <label class="lbl">Name</label><input id="partName">
+      <label class="lbl">NetSuite SKU (optional)</label><input id="partNs" inputmode="numeric">
+      <div class="row2">
+        <div><label class="lbl">Unit price € (optional)</label><input id="partPrice" type="number" inputmode="decimal" step="0.01" min="0"></div>
+        <div><label class="lbl">Weight per piece, g (optional)</label><input id="partWeight" type="number" inputmode="decimal" step="0.1" min="0"></div>
+      </div>
+      <p class="hint">The photo is found in Google Drive by NetSuite SKU (file name "1234567 - Part name.jpg").</p>
+      <button id="partSave" class="big">Save part</button>
+    </div>
+    <div class="panel" id="demoPanel">
+      <h3>Demo data</h3>
+      <p class="hint">Demo mode keeps sample data on this device only. Connect the Google Sheet above for the real, shared stock.</p>
+      <button id="demoReset">Reset demo data</button>
+    </div>
+    <datalist id="skuList"></datalist>
+  </section>
+</main>
+
+<!-- sign-in screen -->
+<div id="signin" class="signin hidden">
+  <div class="sibox">
+    <div class="brand"><span class="logo">▦</span> Inventory/Stocks</div>
+    <h2>Sign in</h2>
+    <label class="lbl">Your name</label>
+    <select id="siName"></select>
+    <label class="lbl">Your PIN</label>
+    <input id="siPin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="8">
+    <button id="siGo" class="big go">Sign in</button>
+    <p class="hint" id="siMsg"></p>
+    <p class="hint">You stay signed in on this device until you tap Sign out.</p>
+    <details id="siConn">
+      <summary>Connection</summary>
+      <p class="hint" id="siConnHint"></p>
+      <label class="lbl">Apps Script web app URL (ends in /exec)</label>
+      <input id="siUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+      <button id="siUrlSave" class="big">Save and connect</button>
+    </details>
+  </div>
+</div>
+
+<!-- dialogs -->
+<div id="modal" class="modal hidden"><div class="sheet" id="modalBody"></div></div>
+<div id="camModal" class="modal hidden">
+  <div class="sheet cam">
+    <div id="camBox"><video id="camVideo" playsinline muted></video><div class="aim"></div></div>
+    <p class="hint" id="camHint">Point the camera at the barcode</p>
+    <button id="camClose" class="big">Cancel</button>
+  </div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<div id="printArea"></div>
+
+<script src="core.js"></script>
+<script src="demo-seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
