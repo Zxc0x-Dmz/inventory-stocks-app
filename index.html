@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Stocks">
-<link rel="stylesheet" href="style.css?v=2.17">
+<link rel="stylesheet" href="style.css?v=2.18">
 </head>
 <body>
 <header class="top">
@@ -134,6 +134,7 @@
     <div class="seg" id="labelSeg">
       <button data-lb="BIN" class="on">Bin labels</button>
       <button data-lb="TOTE">White box labels</button>
+      <button data-lb="PART">Parts labels</button>
       <button data-lb="RACK">Rack signs</button>
     </div>
     <div class="filters">
@@ -144,7 +145,7 @@
         <option value="2x7">A4 · 14 per sheet (99 × 38 mm)</option>
         <option value="2x4">A4 · 8 per sheet (99 × 67 mm)</option>
       </select>
-      <label class="tog"><input type="checkbox" id="labelNew" checked> Only labels not printed yet</label>
+      <label class="tog"><input type="checkbox" id="labelNew" checked> <span id="labelNewTxt">Only labels not printed yet</span></label>
       <label class="tog"><input type="checkbox" id="labelAll"> Select all shown</label>
     </div>
     <div id="labelList" class="list compact"></div>
@@ -274,8 +275,8 @@
 <div id="toast" class="toast hidden"></div>
 <div id="printArea"></div>
 
-<script src="core.js?v=2.17"></script>
-<script src="demo-seed.js?v=2.17"></script>
-<script src="app.js?v=2.17"></script>
+<script src="core.js?v=2.18"></script>
+<script src="demo-seed.js?v=2.18"></script>
+<script src="app.js?v=2.18"></script>
 </body>
 </html>

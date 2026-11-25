@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.17 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.18 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -395,6 +395,8 @@
     if (P[up]) return { sku: up };
     var ns = snap.parts.filter(function (p) { return p.ns_sku && p.ns_sku === s; })[0];
     if (ns) return { sku: ns.sku };
+    var cc = snap.parts.filter(function (p) { return codeOf(p).toUpperCase() === up; })[0];   // part label of a part without a NetSuite SKU
+    if (cc) return { sku: cc.sku };
     return null;
   }
   function vehicleFrom(text) {
@@ -1413,15 +1415,65 @@
   var lbMode = 'BIN', lbSel = {};
   var LAYOUTS = { '3x8': [3, 8, 70, 37], '3x7': [3, 7, 70, 42.3], '2x7': [2, 7, 99.1, 38.1], '2x4': [2, 4, 99.1, 67.7] };
   qsa('#labelSeg button').forEach(function (b) {
-    b.onclick = function () { lbMode = b.dataset.lb; lbSel = {}; qsa('#labelSeg button').forEach(function (x) { x.classList.toggle('on', x === b); }); $('labelLayout').style.display = lbMode === 'BIN' ? '' : 'none'; renderLabels(); };
+    b.onclick = function () { lbMode = b.dataset.lb; lbSel = {}; $('labelSearch').value = ''; $('labelNew').checked = lbMode !== 'PART'; $('labelAll').checked = false; qsa('#labelSeg button').forEach(function (x) { x.classList.toggle('on', x === b); }); renderLabels(); };
   });
   $('labelSearch').addEventListener('input', renderLabels);
   $('labelNew').addEventListener('change', function () { lbSel = {}; renderLabels(); });
-  $('labelAll').onchange = function () { var on = this.checked; labelPool().forEach(function (l) { lbSel[l.loc] = on; }); renderLabels(); };
+  $('labelAll').onchange = function () { var on = this.checked; (lbMode === 'PART' ? labelPool().slice(0, 300) : labelPool()).forEach(function (l) { lbSel[l.loc] = on; }); renderLabels(); };
   var RACKS = []; for (var rk = 1; rk <= 15; rk++) RACKS.push({ loc: 'R' + ('0' + rk).slice(-2), type: 'RACK' });
+  /* Code 128 (set B) barcode as SVG: every phone scanner and USB scanner reads it.  Drawn here, so no internet is needed. */
+  var C128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+  function code128Svg(text) {
+    text = String(text || '').replace(/[^\x20-\x7e]/g, '');
+    var codes = [104], sum = 104;
+    for (var i = 0; i < text.length; i++) { var v = text.charCodeAt(i) - 32; codes.push(v); sum += v * (i + 1); }
+    codes.push(sum % 103); codes.push(106);
+    var x = 10, bars = '';
+    codes.forEach(function (c) {
+      var w = C128[c];
+      for (var j = 0; j < w.length; j++) { var n = Number(w[j]); if (j % 2 === 0) bars += '<rect x="' + x + '" y="0" width="' + n + '" height="50"/>'; x += n; }
+    });
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (x + 10) + ' 50" preserveAspectRatio="none" shape-rendering="crispEdges"><rect width="' + (x + 10) + '" height="50" fill="#fff"/><g fill="#000">' + bars + '</g></svg>';
+  }
+  /** One part label: name, "SKU 4000xxx", and the barcode of the SKU. */
+  function partLabel(p) {
+    var code = codeOf(p);
+    return '<div class="lab plab c-' + p.model + '"><div class="pn">' + esc(p.name) + '</div><div class="ps">SKU ' + esc(code) + '</div><div class="pb">' + code128Svg(code) + '</div></div>';
+  }
+  function previewRack(loc) {
+    var r = RACKS.filter(function (x) { return x.loc === loc; })[0]; if (!r) return;
+    var page = rackPages([r]), one = /<div class="lab racksign">[\s\S]*<\/div><\/div>(?=<\/div>$)/.exec(page);
+    modal('<h3 class="formtitle">Rack sign ' + esc(loc) + '</h3><div class="pvwrap one"><div class="pvone" style="width:210mm;height:148.5mm">' + (one ? one[0] : page) + '</div></div>' +
+      '<p class="hint">Half an A4 sheet (two signs per page), shown smaller.</p>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big go" data-x="stay" id="prPrint">Print this one</button></div>');
+    $('prPrint').onclick = function () { closeModal(); lbSel = {}; lbSel[loc] = true; $('labelPrint').onclick(); };
+    var wrap = document.querySelector('#modalBody .pvwrap'), box = document.querySelector('#modalBody .pvone');
+    setTimeout(function () { var k = Math.min(3, (wrap.clientWidth - 6) / box.offsetWidth); box.style.transform = 'scale(' + k + ')'; wrap.style.height = Math.ceil(box.offsetHeight * k + 6) + 'px'; }, 0);
+  }
+  function previewPart(sku) {
+    var p = P[sku]; if (!p) return;
+    var L4 = LAYOUTS[$('labelLayout').value], w = L4[2], h = L4[3];
+    modal('<h3 class="formtitle">' + esc(p.name) + ' · part label</h3><div class="pvwrap one"><div class="pvone" style="width:' + w + 'mm;height:' + h + 'mm">' + partLabel(p) + '</div></div>' +
+      '<p class="hint">Real size ' + w + ' × ' + h + ' mm (' + esc($('labelLayout').selectedOptions[0].textContent) + '), shown bigger. Scanning the barcode opens this part.</p>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big go" data-x="stay" id="ppPrint">Print this one</button></div>');
+    $('ppPrint').onclick = function () { closeModal(); lbSel = {}; lbSel[p.sku] = true; $('labelPrint').onclick(); };
+    var wrap = document.querySelector('#modalBody .pvwrap'), one = document.querySelector('#modalBody .pvone');
+    setTimeout(function () { var s = Math.min(3, (wrap.clientWidth - 6) / one.offsetWidth); one.style.transform = 'scale(' + s + ')'; wrap.style.height = Math.ceil(one.offsetHeight * s + 6) + 'px'; }, 0);
+  }
+
   function labelPool() {
     var q = $('labelSearch').value.trim().toLowerCase();
     if (lbMode === 'RACK') return RACKS.filter(function (r) { return !q || r.loc.toLowerCase().indexOf(q) >= 0; });
+    if (lbMode === 'PART') {
+      var words = q ? q.split(/\s+/) : [], stockOnly = $('labelNew').checked, order = { OK4: 0, NB3: 1, NB2: 2, UNI: 3 };
+      return snap.parts.filter(function (p) {
+        if (stockOnly && !(stockOf(p.sku).total > 0)) return false;
+        if (!words.length) return true;
+        var hay = (p.name + ' ' + p.sku + ' ' + (p.ns_sku || '') + ' ' + codeOf(p) + ' ' + (MODEL_TAG[p.model] || '') + ' ' + p.model).toLowerCase();
+        return words.every(function (w) { return hay.indexOf(w) >= 0; });
+      }).sort(function (a, b) { return (order[a.model] - order[b.model]) || a.name.localeCompare(b.name); })
+        .map(function (p) { return { loc: p.sku, part: p }; });
+    }
     return Object.keys(BOXES).map(function (k) { var rows = inBox(k); return rows.length ? { loc: k, type: rows[0].type, rows: rows } : null; })
       .filter(function (b) {
         if (!b || b.type !== lbMode) return false;
@@ -1431,21 +1483,38 @@
       }).sort(function (a, b) { return a.loc.localeCompare(b.loc, undefined, { numeric: true }); });
   }
   function renderLabels() {
+    $('labelNewTxt').textContent = lbMode === 'PART' ? 'Only parts in stock' : 'Only labels not printed yet';
+    $('labelNew').parentNode.style.display = lbMode === 'RACK' ? 'none' : '';
+    $('labelLayout').style.display = lbMode === 'BIN' || lbMode === 'PART' ? '' : 'none';
     var pool = labelPool();
     var n = Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length;
+    if (lbMode === 'PART') {
+      var show = pool.slice(0, 300);
+      $('labelList').innerHTML = (pool.length ? show.map(function (r) {
+        var p = r.part;
+        return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(p.sku) + '"' + (lbSel[p.sku] ? ' checked' : '') + '><span class="pbarp">' + code128Svg(codeOf(p)) + '</span>' +
+          '<span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1">' + esc(p.name) + '</div><div class="t2">SKU ' + esc(codeOf(p)) + ' · ' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + stockOf(p.sku).total + ' in stock</div></div>' +
+          '<button type="button" class="pvbtn" data-pp="' + esc(p.sku) + '">👁 Preview</button></label>';
+      }).join('') : '<p class="hint">No parts match.</p>') + (pool.length > show.length ? '<p class="hint">Showing 300 of ' + pool.length + '. Search to narrow down, or "Select all shown" and print in batches.</p>' : '');
+      qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
+      qsa('#labelList [data-pp]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewPart(b.dataset.pp); }; });
+      $('labelPrint').textContent = 'Print selected labels (' + n + ')';
+      return;
+    }
     if (lbMode === 'RACK') {
       $('labelList').innerHTML = pool.map(function (r) {
         var n = snap.locations.filter(function (l) { return normLoc_(l.loc).indexOf(r.loc + '-') === 0; }).length;
-        return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + r.loc + '</span> · Rack ' + Number(r.loc.slice(1)) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div></label>';
+        return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + r.loc + '</span> · Rack ' + Number(r.loc.slice(1)) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
       }).join('');
       qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected signs (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
+      qsa('#labelList [data-pr]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewRack(b.dataset.pr); }; });
       $('labelPrint').textContent = 'Print selected signs (' + n + ')';
       return;
     }
     var nb = needLabel(), segN = { BIN: 0, TOTE: 0 };
     nb.forEach(function (k) { segN[kindOf(k)]++; });
     qsa('#labelSeg button').forEach(function (x) {
-      var base = { BIN: 'Bin labels', TOTE: 'White box labels', RACK: 'Rack signs' }[x.dataset.lb];
+      var base = { BIN: 'Bin labels', TOTE: 'White box labels', PART: 'Parts labels', RACK: 'Rack signs' }[x.dataset.lb];
       x.textContent = base + (segN[x.dataset.lb] ? ' (' + segN[x.dataset.lb] + ' new)' : '');
     });
     $('labelList').innerHTML = pool.length ? pool.map(function (b) {
@@ -1524,12 +1593,12 @@
   }
   function labelPages(kind, chosen) {
     var html = '';
-    if (kind === 'BIN') {
+    if (kind === 'BIN' || kind === 'PART') {
       var L4 = LAYOUTS[$('labelLayout').value], cols = L4[0], rows = L4[1], w = L4[2], h = L4[3], per = cols * rows;
       var padT = Math.max(0, (297 - rows * h) / 2), padL = Math.max(0, (210 - cols * w) / 2);
       for (var i = 0; i < chosen.length; i += per) {
         html += '<div class="page" style="padding:' + padT + 'mm ' + padL + 'mm;grid-template-columns:repeat(' + cols + ',' + w + 'mm);grid-template-rows:repeat(' + rows + ',' + h + 'mm)">' +
-          chosen.slice(i, i + per).map(binLabel).join('') + '</div>';
+          chosen.slice(i, i + per).map(kind === 'PART' ? function (r) { return partLabel(r.part); } : binLabel).join('') + '</div>';
       }
     } else {
       for (var j = 0; j < chosen.length; j += 2) html += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">' + chosen.slice(j, j + 2).map(toteLabel).join('') + '</div>';
@@ -1541,6 +1610,7 @@
   }); }
   function selectedForPrint() {
     if (lbMode === 'RACK') return RACKS.filter(function (r) { return lbSel[r.loc]; });
+    if (lbMode === 'PART') return snap.parts.filter(function (p) { return lbSel[p.sku]; }).map(function (p) { return { loc: p.sku, part: p }; });
     return labelPool().filter(function (b) { return lbSel[b.loc]; });
   }
 
@@ -1589,6 +1659,11 @@
       return;
     }
     if (!chosen.length) return toast('Tick the labels to print first', 'bad');
+    if (lbMode === 'PART') {   // part labels: just print (no "printed" tracking)
+      $('printArea').innerHTML = labelPages('PART', chosen);
+      setTimeout(function () { window.print(); }, 150);
+      return;
+    }
     withQr().then(function () {
       $('printArea').innerHTML = labelPages(lbMode, chosen);
       setTimeout(function () {
