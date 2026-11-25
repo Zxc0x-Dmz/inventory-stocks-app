@@ -390,3 +390,11 @@ body.sup .sup-hide { display: none !important; }
 .lqrp svg { width: 100%; height: 100%; display: block; }
 .qrbig { width: min(70vw, 280px); margin: 8px auto 12px; padding: 12px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
 .qrbig svg { width: 100%; height: auto; display: block; }
+
+/* Sticker preview (same label styles as printing, scaled down to the screen) */
+.pvwrap { overflow: hidden; background: #e9ebef; border-radius: 10px; padding: 2px; margin: 6px 0; max-height: 62vh; overflow-y: auto; }
+.pvpages { transform-origin: top left; width: 210mm; }
+.pvpages .page { width: 210mm; height: 297mm; background: #fff; display: grid; margin-bottom: 4mm; box-shadow: 0 1px 4px rgba(0,0,0,.25); overflow: hidden; }
+.pvwrap.one { background: #f6f7f9; display: block; overflow: hidden; max-height: none; }
+.pvone { transform-origin: top left; display: grid; background: #fff; }
+.pvone .lab { margin: 0; }

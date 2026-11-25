@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.13 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.14 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1373,67 +1373,109 @@
     modal('<h3 class="formtitle mono" style="text-align:center">' + esc(loc) + '</h3><div class="qrbig">' + qrSvg(loc) + '</div>' +
       '<p class="hint" style="text-align:center">' + KIND[kindOf(loc)].name + ' · ' + esc(rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) + '</p>' +
       '<p class="hint" style="text-align:center">This QR code goes on the printed label. Scanning it opens this box.</p>' +
-      '<div class="btns"><button type="button" class="big" data-x="close">Close</button></div>');
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big ok" data-x="stay" id="qrSticker">See the sticker</button></div>');
+    $('qrSticker').onclick = function () { previewOne(loc); };
   }
   function qrSvg(text) {
     if (!window.qrcode) return '';
     var q = qrcode(0, 'M'); q.addData(text); q.make();
     return q.createSvgTag({ cellSize: 2, margin: 0, scalable: true });
   }
-  $('labelPrint').onclick = function () {
-    if (lbMode === 'RACK') {
-      var signs = RACKS.filter(function (r) { return lbSel[r.loc]; });
-      if (!signs.length) return toast('Tick the rack signs to print first', 'bad');
-      var sh = '';
-      for (var si = 0; si < signs.length; si += 2) {
-        sh += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">' + signs.slice(si, si + 2).map(function (r) {
-          return '<div class="lab racksign"><div class="rs-k">RACK</div><div class="rs-n">' + r.loc + '</div><div class="rs-h">Shelves S1, S2, S3 … from the bottom · bins B01, B02 … from the left<br>Bin label example: <b>' + r.loc + '-S2-B05</b></div></div>';
-        }).join('') + '</div>';
+  /** The sticker pages (A4) as HTML: blue-bin labels on the chosen sheet layout, white-box labels two per page,
+   *  rack signs two per page.  Used for printing and for the on-screen preview. */
+  function rackPages(signs) {
+    var sh = '';
+    for (var si = 0; si < signs.length; si += 2) {
+      sh += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">' + signs.slice(si, si + 2).map(function (r) {
+        return '<div class="lab racksign"><div class="rs-k">RACK</div><div class="rs-n">' + r.loc + '</div><div class="rs-h">Shelves S1, S2, S3 … from the bottom · bins B01, B02 … from the left<br>Bin label example: <b>' + r.loc + '-S2-B05</b></div></div>';
+      }).join('') + '</div>';
+    }
+    return sh;
+  }
+  function binLabel(b) {
+    var p = P[b.rows[0].sku], m = MODELS[p.model], mixed = b.rows.length > 1;
+    return '<div class="lab c-' + p.model + '"><div class="lh"><span>' + esc(m.name) + '</span><span>' + (mixed ? 'MIXED · ' + b.rows.length : esc(p.system) + ' · ' + esc(p.abc)) + '</span></div>' +
+      '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt">' +
+      (mixed ? '<div class="lname lmix">' + b.rows.map(function (l) { return esc(P[l.sku].name); }).join(' · ') + '</div>'
+             : '<div class="lsku">' + esc(codeOf(p)) + '</div><div class="lname">' + esc(p.name) + '</div>') +
+      '<div class="lloc">' + esc(b.loc) + '</div></div></div></div>';
+  }
+  function toteLabel(b) {
+    var l = b.rows[0], p = P[l.sku], m = MODELS[p.model];
+    if (b.rows.length > 1) {
+      return '<div class="lab tote c-' + p.model + '"><div class="lh"><span>MIXED BOX · ' + esc(m.name) + '</span><span>' + esc(b.loc) + '</span></div>' +
+        '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt"><div class="lmixlist">' + b.rows.map(function (x) {
+          return '<div><b>' + num(x.qty) + '</b> × ' + esc(P[x.sku].name) + ' <span>' + esc(codeOf(P[x.sku])) + '</span></div>';
+        }).join('') + '</div><div class="tmeta">Packed ' + esc(today()) + '</div></div></div></div>';
+    }
+    return '<div class="lab tote c-' + p.model + '"><div class="lh"><span>SEALED BULK · ' + esc(m.name) + '</span><span>' + esc(l.loc) + '</span></div>' +
+      '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div><div class="lname">' + esc(p.name) + '</div><div class="lsku">' + esc(codeOf(p)) + '</div></div>' +
+      '<div><div class="tmeta">EXACT QUANTITY</div><div class="tq">' + num(l.qty) + '</div><div class="tmeta">Sealed ' + esc(l.sealed_date || today()) + (l.notes ? ' · ' + esc(l.notes) : '') + '</div></div>' +
+      '<div class="sealbox">Seal broken on ____/____/______ by __________</div></div></div></div>';
+  }
+  function labelPages(kind, chosen) {
+    var html = '';
+    if (kind === 'BIN') {
+      var L4 = LAYOUTS[$('labelLayout').value], cols = L4[0], rows = L4[1], w = L4[2], h = L4[3], per = cols * rows;
+      var padT = Math.max(0, (297 - rows * h) / 2), padL = Math.max(0, (210 - cols * w) / 2);
+      for (var i = 0; i < chosen.length; i += per) {
+        html += '<div class="page" style="padding:' + padT + 'mm ' + padL + 'mm;grid-template-columns:repeat(' + cols + ',' + w + 'mm);grid-template-rows:repeat(' + rows + ',' + h + 'mm)">' +
+          chosen.slice(i, i + per).map(binLabel).join('') + '</div>';
       }
-      $('printArea').innerHTML = sh;
+    } else {
+      for (var j = 0; j < chosen.length; j += 2) html += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">' + chosen.slice(j, j + 2).map(toteLabel).join('') + '</div>';
+    }
+    return html;
+  }
+  function withQr() { return loadScript(QR_LIB).catch(function () { toast('QR code library could not load. Labels show without QR codes.', 'bad'); }).then(function () {
+    return new Promise(function (ok) { var t = 0, w = function () { if (window.qrcode || t++ > 20) ok(); else setTimeout(w, 150); }; w(); });
+  }); }
+  function selectedForPrint() {
+    if (lbMode === 'RACK') return RACKS.filter(function (r) { return lbSel[r.loc]; });
+    return labelPool().filter(function (b) { return lbSel[b.loc]; });
+  }
+
+  /** On-screen preview of the A4 sticker sheets, exactly as they will print, scaled to fit the screen. */
+  function showPreview(html, title, after) {
+    modal('<h3 class="formtitle">' + title + '</h3><div class="pvwrap"><div class="pvpages">' + html + '</div></div>' +
+      '<p class="hint">Preview of the A4 sticker sheet' + (lbMode === 'BIN' ? ' (' + esc($('labelLayout').selectedOptions[0].textContent) + ')' : '') + '. Nothing is printed yet.</p>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button>' + (after ? '<button type="button" class="big go" data-x="stay" id="pvPrint">Print these</button>' : '') + '</div>');
+    var wrap = document.querySelector('#modalBody .pvwrap'), pages = document.querySelector('#modalBody .pvpages');
+    var fit = function () { var s = Math.min(1, (wrap.clientWidth - 4) / pages.firstChild.offsetWidth); pages.style.transform = 'scale(' + s + ')'; pages.style.height = (pages.scrollHeight * s) + 'px'; wrap.style.height = (pages.firstChild ? pages.getBoundingClientRect().height : 0) + 'px'; };
+    if (pages.firstChild) setTimeout(fit, 0);
+    if (after) $('pvPrint').onclick = function () { closeModal(); after(); };
+  }
+  $('labelPreview').onclick = function () {
+    var chosen = selectedForPrint();
+    if (!chosen.length) return toast('Tick the labels to preview first', 'bad');
+    if (lbMode === 'RACK') return showPreview(rackPages(chosen), 'Preview · ' + chosen.length + ' rack sign' + (chosen.length > 1 ? 's' : ''), $('labelPrint').onclick);
+    withQr().then(function () { showPreview(labelPages(lbMode, chosen), 'Preview · ' + chosen.length + ' label' + (chosen.length > 1 ? 's' : ''), $('labelPrint').onclick); });
+  };
+  /** One box's sticker, big, from the QR window. */
+  function previewOne(loc) {
+    var rows = inBox(loc); if (!rows.length) return;
+    var b = { loc: normLoc_(loc), type: rows[0].type, rows: rows }, kind = b.type === 'TOTE' ? 'TOTE' : 'BIN';
+    withQr().then(function () {
+      var L4 = LAYOUTS[$('labelLayout').value], w = kind === 'BIN' ? L4[2] : 210, h = kind === 'BIN' ? L4[3] : 148.5;
+      modal('<h3 class="formtitle mono">' + esc(b.loc) + ' · sticker</h3><div class="pvwrap one"><div class="pvone" style="width:' + w + 'mm;height:' + h + 'mm">' + (kind === 'BIN' ? binLabel(b) : toteLabel(b)) + '</div></div>' +
+        '<p class="hint">' + (kind === 'BIN' ? 'Real size ' + w + ' × ' + h + ' mm (' + esc($('labelLayout').selectedOptions[0].textContent) + '), shown bigger.' : 'White box label: half an A4 sheet.') + '</p>' +
+        '<div class="btns"><button type="button" class="big" data-x="close">Close</button></div>');
+      var wrap = document.querySelector('#modalBody .pvwrap'), one = document.querySelector('#modalBody .pvone');
+      setTimeout(function () { var s = Math.min(3, (wrap.clientWidth - 6) / one.offsetWidth); one.style.transform = 'scale(' + s + ')'; wrap.style.height = Math.ceil(one.offsetHeight * s + 6) + 'px'; }, 0);
+    });
+  }
+
+  $('labelPrint').onclick = function () {
+    var chosen = selectedForPrint();
+    if (lbMode === 'RACK') {
+      if (!chosen.length) return toast('Tick the rack signs to print first', 'bad');
+      $('printArea').innerHTML = rackPages(chosen);
       setTimeout(function () { window.print(); }, 150);
       return;
     }
-    var chosen = labelPool().filter(function (b) { return lbSel[b.loc]; });
     if (!chosen.length) return toast('Tick the labels to print first', 'bad');
-    loadScript(QR_LIB).catch(function () { toast('QR code library could not load. Labels will print without QR codes.', 'bad'); }).then(function () {
-      var html = '';
-      if (lbMode === 'BIN') {
-        var L4 = LAYOUTS[$('labelLayout').value], cols = L4[0], rows = L4[1], w = L4[2], h = L4[3], per = cols * rows;
-        var padT = Math.max(0, (297 - rows * h) / 2), padL = Math.max(0, (210 - cols * w) / 2);
-        for (var i = 0; i < chosen.length; i += per) {
-          html += '<div class="page" style="padding:' + padT + 'mm ' + padL + 'mm;grid-template-columns:repeat(' + cols + ',' + w + 'mm);grid-template-rows:repeat(' + rows + ',' + h + 'mm)">';
-          chosen.slice(i, i + per).forEach(function (b) {
-            var p = P[b.rows[0].sku], m = MODELS[p.model], mixed = b.rows.length > 1;
-            html += '<div class="lab c-' + p.model + '"><div class="lh"><span>' + esc(m.name) + '</span><span>' + (mixed ? 'MIXED · ' + b.rows.length : esc(p.system) + ' · ' + esc(p.abc)) + '</span></div>' +
-              '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt">' +
-              (mixed ? '<div class="lname lmix">' + b.rows.map(function (l) { return esc(P[l.sku].name); }).join(' · ') + '</div>'
-                     : '<div class="lsku">' + esc(codeOf(p)) + '</div><div class="lname">' + esc(p.name) + '</div>') +
-              '<div class="lloc">' + esc(b.loc) + '</div></div></div></div>';
-          });
-          html += '</div>';
-        }
-      } else {
-        for (var j = 0; j < chosen.length; j += 2) {
-          html += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">';
-          chosen.slice(j, j + 2).forEach(function (b) {
-            var l = b.rows[0], p = P[l.sku], m = MODELS[p.model];
-            if (b.rows.length > 1) {
-              html += '<div class="lab tote c-' + p.model + '"><div class="lh"><span>MIXED BOX · ' + esc(m.name) + '</span><span>' + esc(b.loc) + '</span></div>' +
-                '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt"><div class="lmixlist">' + b.rows.map(function (x) {
-                  return '<div><b>' + num(x.qty) + '</b> × ' + esc(P[x.sku].name) + ' <span>' + esc(codeOf(P[x.sku])) + '</span></div>';
-                }).join('') + '</div><div class="tmeta">Packed ' + esc(today()) + '</div></div></div></div>';
-              return;
-            }
-            html += '<div class="lab tote c-' + p.model + '"><div class="lh"><span>SEALED BULK · ' + esc(m.name) + '</span><span>' + esc(l.loc) + '</span></div>' +
-              '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div><div class="lname">' + esc(p.name) + '</div><div class="lsku">' + esc(codeOf(p)) + '</div></div>' +
-              '<div><div class="tmeta">EXACT QUANTITY</div><div class="tq">' + num(l.qty) + '</div><div class="tmeta">Sealed ' + esc(l.sealed_date || today()) + (l.notes ? ' · ' + esc(l.notes) : '') + '</div></div>' +
-              '<div class="sealbox">Seal broken on ____/____/______ by __________</div></div></div></div>';
-          });
-          html += '</div>';
-        }
-      }
-      $('printArea').innerHTML = html;
+    withQr().then(function () {
+      $('printArea').innerHTML = labelPages(lbMode, chosen);
       setTimeout(function () {
         window.print();
         var locs = chosen.map(function (b) { return b.loc; });
