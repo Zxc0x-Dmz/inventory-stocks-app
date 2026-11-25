@@ -6,7 +6,7 @@
  * the Movements log.  Nothing changes a quantity without a log line.
  */
 var TABLES = {
-  Parts:     ['sku', 'name', 'model', 'system', 'abc', 'ns_sku', 'tier_code', 'fits', 'unit', 'notes', 'price_eur', 'weight_g', 'photo_id', 'hs_code'],
+  Parts:     ['sku', 'name', 'model', 'system', 'abc', 'ns_sku', 'tier_code', 'fits', 'unit', 'notes', 'price_eur', 'weight_g', 'photo_id', 'hs_code', 'reorder_at'],
   Locations: ['loc', 'type', 'sku', 'qty', 'min', 'sealed_date', 'last_count', 'notes'],
   Movements: ['id', 'ts', 'type', 'sku', 'from_loc', 'to_loc', 'qty', 'mechanic', 'vehicle', 'note', 'device'],
   Counts:    ['id', 'ts', 'loc', 'sku', 'expected', 'counted', 'variance', 'counter', 'status', 'resolved_by', 'resolved_ts'],
@@ -68,11 +68,24 @@ Core.prototype.snapshot = function () {
   };
 };
 
-Core.prototype.findLoc_ = function (loc) {
+/** A box can hold several parts: one Locations row per box + part.
+ *  findLoc_(box, sku) = that part's row in the box (null if the part is not in it).
+ *  findLoc_(box) = the box's first row (for "does this box exist"). */
+Core.prototype.findLoc_ = function (loc, sku) {
+  loc = normLoc_(loc); sku = sku ? String(sku).toUpperCase() : '';
+  var rows = this.s.rows('Locations'), first = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (normLoc_(rows[i].loc) !== loc) continue;
+    if (!sku || rows[i].sku === sku) return rows[i];
+    if (!first) first = rows[i];
+  }
+  return sku ? null : first;
+};
+
+/** Every row (part) in a box. */
+Core.prototype.boxRows_ = function (loc) {
   loc = normLoc_(loc);
-  var rows = this.s.rows('Locations');
-  for (var i = 0; i < rows.length; i++) if (normLoc_(rows[i].loc) === loc) return rows[i];
-  return null;
+  return this.s.rows('Locations').filter(function (r) { return normLoc_(r.loc) === loc; });
 };
 
 Core.prototype.findPart_ = function (sku) {
@@ -105,8 +118,8 @@ Core.prototype.move = function (p) {
   if (!MOVE_TYPES[type] || type === 'ADJUST') fail_('Unknown action ' + p.type);
   var qty = Math.round(num_(p.qty));
   if (qty <= 0) fail_('Quantity must be 1 or more');
-  var src = this.findLoc_(p.loc);
-  if (!src) fail_('Location ' + p.loc + ' is not set up');
+  var src = this.findLoc_(p.loc, p.sku);
+  if (!src) fail_(p.sku && this.findLoc_(p.loc) ? p.sku + ' is not in box ' + normLoc_(p.loc) : 'Location ' + p.loc + ' is not set up');
   if (!src.sku) fail_('Location ' + src.loc + ' has no part assigned');
   var now = this.nowIso(), out = { ok: true };
 
@@ -126,21 +139,23 @@ Core.prototype.move = function (p) {
     this.s.update('Locations', src, { qty: qty, sealed_date: now.slice(0, 10), last_count: now.slice(0, 10) });
     this.log_({ id: p.id, ts: now, type: 'SEAL', sku: src.sku, to_loc: src.loc, qty: qty - was, mechanic: p.mechanic, note: 'Sealed with ' + qty + (p.note ? ' - ' + p.note : ''), device: p.device });
   } else { // RESTOCK / TRANSFER
-    var dst = this.findLoc_(p.to_loc);
-    if (!dst) fail_('Location ' + p.to_loc + ' is not set up');
-    if (dst.sku !== src.sku) fail_(dst.loc + ' holds ' + dst.sku + ', not ' + src.sku);
+    var dst = this.findLoc_(p.to_loc, src.sku);
+    if (!dst) fail_(this.findLoc_(p.to_loc) ? normLoc_(p.to_loc) + ' has no ' + src.sku + ' yet. Use Move to another box.' : 'Location ' + p.to_loc + ' is not set up');
     if (num_(src.qty) < qty && !p.force)
       fail_('System shows only ' + num_(src.qty) + ' in ' + src.loc, { code: 'SHORT', have: num_(src.qty) });
-    var left = num_(src.qty) - qty;
+    var left = num_(src.qty) - qty, movedSku = src.sku;
     var srcPatch = { qty: left };
     if (src.type === 'TOTE' && type === 'RESTOCK') srcPatch.sealed_date = left > 0 ? 'OPENED ' + now.slice(0, 10) : '';
+    // everything moved out: the old box lets go of the part, so the part only shows in its new box
+    if (left === 0) { srcPatch.sku = ''; srcPatch.min = 0; srcPatch.sealed_date = ''; srcPatch.last_count = ''; out.released = true; }
     this.s.update('Locations', src, srcPatch);
     this.s.update('Locations', dst, { qty: num_(dst.qty) + qty });
-    this.log_({ id: p.id, ts: now, type: type, sku: src.sku, from_loc: src.loc, to_loc: dst.loc, qty: qty, mechanic: p.mechanic, note: p.note, device: p.device });
-    out.to = { loc: dst.loc, qty: num_(dst.qty) };
+    this.log_({ id: p.id, ts: now, type: type, sku: movedSku, from_loc: src.loc, to_loc: dst.loc, qty: qty, mechanic: p.mechanic, note: p.note, device: p.device });
+    out.to = { loc: dst.loc, sku: dst.sku, qty: num_(dst.qty) };
+    out.loc = { loc: src.loc, sku: movedSku, qty: left, min: num_(src.min) };
   }
   this.s.bump();
-  out.loc = { loc: src.loc, qty: num_(src.qty), min: num_(src.min) };
+  if (!out.loc) out.loc = { loc: src.loc, sku: src.sku, qty: num_(src.qty), min: num_(src.min) };
   out.version = this.s.version();
   return out;
 };
@@ -150,13 +165,13 @@ Core.prototype.flagCount_ = function (loc, note) {
 };
 
 /**
- * Blind count.  p = {id, loc, counted, counter, attempt}
+ * Blind count.  p = {id, loc, sku, counted, counter, attempt}   (sku: which part in the box)
  * The counter never sees the system quantity.  First mismatch: nothing saved, asked to recount.
  * Second mismatch: saved as REVIEW for a supervisor.  A match stamps last_count.
  */
 Core.prototype.count = function (p) {
-  var loc = this.findLoc_(p.loc);
-  if (!loc) fail_('Location ' + p.loc + ' is not set up');
+  var loc = this.findLoc_(p.loc, p.sku);
+  if (!loc) fail_('Location ' + p.loc + (p.sku ? ' has no ' + p.sku : ' is not set up'));
   var counted = Math.round(num_(p.counted)), expected = num_(loc.qty), now = this.nowIso();
   if (counted < 0 || String(p.counted).trim() === '') fail_('Enter the number you counted');
   var match = counted === expected;
@@ -178,7 +193,8 @@ Core.prototype.resolveCount = function (p) {
   if (c.status !== 'REVIEW') return { ok: true, already: c.status };
   var now = this.nowIso();
   if (p.accept) {
-    var loc = this.findLoc_(c.loc);
+    var loc = this.findLoc_(c.loc, c.sku);
+    if (!loc) fail_(c.loc + ' no longer has ' + c.sku);
     var target = p.counted !== undefined && p.counted !== '' ? Math.round(num_(p.counted)) : num_(c.counted);
     var delta = target - num_(loc.qty);
     this.s.update('Locations', loc, { qty: target, last_count: now.slice(0, 10) });
@@ -195,12 +211,12 @@ Core.prototype.resolveCount = function (p) {
  */
 Core.prototype.saveLocation = function (p) {
   var id = normLoc_(p.loc);
-  if (!/^(R\d+-S\d+-B\d+(-[A-Z])?|T-?\d+)$/.test(id)) fail_('Location must look like R1-S3-B04, R1-S3-B04-A or T-0001');
+  if (!LOC_RE.test(id)) fail_('Box must look like C1-B014, A200-T003, R1-S3-B04 or T-0001');
   if (p.sku && !this.findPart_(p.sku)) fail_('Unknown SKU ' + p.sku);
   var type = isTote_(id) ? 'TOTE' : 'BIN';
-  var ex = this.findLoc_(id), now = this.nowIso();
+  var ex = p.sku ? this.findLoc_(id, p.sku) : this.findLoc_(id), now = this.nowIso();
+  if (!ex && p.sku) ex = this.boxRows_(id).filter(function (r) { return !r.sku; })[0] || null;   // an empty row of this box
   if (ex) {
-    if (ex.sku && p.sku && ex.sku !== p.sku && num_(ex.qty) !== 0) fail_(id + ' still holds ' + ex.qty + ' x ' + ex.sku + '. Empty it first.');
     this.s.update('Locations', ex, { sku: p.sku || ex.sku, min: p.min === undefined ? ex.min : num_(p.min), notes: p.notes === undefined ? ex.notes : p.notes });
   } else {
     var qty = Math.max(0, Math.round(num_(p.qty)));
@@ -216,7 +232,7 @@ Core.prototype.saveLocations = function (p) {
   var self = this, results = [];
   (p.rows || []).forEach(function (r) {
     try {
-      if (self.findLoc_(r.loc)) { results.push({ loc: r.loc, skipped: 'already exists' }); return; }
+      if (self.findLoc_(r.loc, r.sku)) { results.push({ loc: r.loc, skipped: 'already exists' }); return; }
       self.saveLocation({ loc: r.loc, sku: r.sku, qty: r.qty, min: r.min, by: p.by, device: p.device });
       results.push({ loc: r.loc, ok: true });
     } catch (e) { results.push({ loc: r.loc, error: e.message }); }
@@ -225,6 +241,25 @@ Core.prototype.saveLocations = function (p) {
 };
 
 /** Add a part, or change one.  p = {sku, name, abc, ns_sku, notes, price_eur, weight_g, photo_id}; only the fields given are changed. */
+/** Order level of a part: order more when the stock (all its bins and boxes together) is at or below it.
+ *  Empty = default by ABC class: A (expensive) 1, B 3, C (screws, small parts) 10. */
+function reorderLevel_(part) {
+  var v = String(part && part.reorder_at != null ? part.reorder_at : '').trim();
+  if (v !== '' && Number(v) >= 0) return Math.floor(Number(v));
+  return { A: 1, B: 3, C: 10 }[part && part.abc] || 3;
+}
+
+/** p = {sku, level}: level '' = back to the default.  Everyone signed in may change it. */
+Core.prototype.setReorder = function (p) {
+  var part = this.findPart_(String(p.sku || '').toUpperCase());
+  if (!part) fail_('Unknown part ' + p.sku);
+  var v = p.level === '' || p.level == null ? '' : Number(p.level);
+  if (v !== '' && !(v >= 0 && v <= 100000 && v === Math.floor(v))) fail_('Order level must be a whole number');
+  this.s.update('Parts', part, { reorder_at: v === '' ? '' : String(v) });
+  this.s.bump();
+  return { ok: true, version: this.s.version() };
+};
+
 Core.prototype.savePart = function (p, who) {
   if (!/^(OK4|NB3|NB2|UNI)-(ELC|WHL|BDY|DRV|FST)-[A-Z0-9]+$/.test(p.sku || '')) fail_('SKU must look like OK4-ELC-CTRL');
   if (p.abc !== undefined && !/^[ABC]$/.test(p.abc)) fail_('ABC class must be A, B or C');
@@ -266,19 +301,20 @@ function normLoc_(v) {
   return s;
 }
 
-/** Makes sure box `id` exists and holds `sku`: creates it, or fills an empty box.  Returns the box row. */
+/** Makes sure box `id` has a row for `sku`: the part's row, an empty row of the box, or a new row.
+ *  A box may hold several parts (mixed box); each part has its own row and count.  Returns the part's row. */
 Core.prototype.ensureBox_ = function (id, sku, min) {
   id = normLoc_(id);
   if (!LOC_RE.test(id)) fail_('Box must look like C1-B014, A200-T003, R1-S3-B04 or T-0001');
-  var ex = this.findLoc_(id);
-  if (ex) {
-    if (ex.sku === sku) return ex;
-    if (ex.sku && num_(ex.qty) !== 0) fail_(id + ' already holds ' + num_(ex.qty) + ' x ' + ex.sku + '. Use another box.');
-    this.s.update('Locations', ex, { sku: sku, min: min !== undefined && min !== '' ? num_(min) : num_(ex.min) });
-    return ex;
+  var ex = this.findLoc_(id, sku);
+  if (ex) return ex;
+  var empty = this.boxRows_(id).filter(function (r) { return !r.sku; })[0];
+  if (empty) {
+    this.s.update('Locations', empty, { sku: sku, min: min !== undefined && min !== '' ? num_(min) : num_(empty.min) });
+    return this.findLoc_(id, sku);
   }
   this.s.append('Locations', { loc: id, type: isTote_(id) ? 'TOTE' : 'BIN', sku: sku, qty: 0, min: num_(min), sealed_date: '', last_count: '', notes: '' });
-  return this.findLoc_(id);
+  return this.findLoc_(id, sku);
 };
 
 /** Add stock of a part into a box (new box, empty box, or the box that already holds it).  Logged as RECEIVE.
@@ -290,18 +326,18 @@ Core.prototype.putAway = function (p) {
   if (!part) fail_('Unknown SKU ' + p.sku);
   if (Math.round(num_(p.qty)) <= 0) fail_('Quantity must be 1 or more');
   var box = this.ensureBox_(p.loc, part.sku, p.min);
-  return this.move({ id: p.id, type: 'RECEIVE', loc: box.loc, qty: p.qty, mechanic: p.mechanic, note: p.note, device: p.device });
+  return this.move({ id: p.id, type: 'RECEIVE', loc: box.loc, sku: part.sku, qty: p.qty, mechanic: p.mechanic, note: p.note, device: p.device });
 };
 
-/** Move stock from one box to another (a new or empty box is set up for the part).  p = {id, from, to, qty, force} */
+/** Move stock of a part from one box to another (the part is added to the other box).  p = {id, sku, from, to, qty, force} */
 Core.prototype.moveStock = function (p) {
   if (!p.id) fail_('Missing movement id');
   if (this.s.hasMovement(p.id)) return { ok: true, duplicate: true };
-  var src = this.findLoc_(p.from);
-  if (!src || !src.sku) fail_('Box ' + p.from + ' is not set up');
+  var src = this.findLoc_(p.from, p.sku);
+  if (!src || !src.sku) fail_('Box ' + p.from + (p.sku ? ' has no ' + p.sku : ' is not set up'));
   if (normLoc_(p.to) === src.loc) fail_('Choose a different box to move to');
   var dst = this.ensureBox_(p.to, src.sku);
-  return this.move({ id: p.id, type: src.type === 'TOTE' ? 'RESTOCK' : 'TRANSFER', loc: src.loc, to_loc: dst.loc, qty: p.qty, force: p.force, mechanic: p.mechanic, note: p.note, device: p.device });
+  return this.move({ id: p.id, type: src.type === 'TOTE' ? 'RESTOCK' : 'TRANSFER', loc: src.loc, sku: src.sku, to_loc: dst.loc, qty: p.qty, force: p.force, mechanic: p.mechanic, note: p.note, device: p.device });
 };
 
 /** Pieces from a scale reading.  Returns null when the part has no weight per piece. */
@@ -386,6 +422,7 @@ Core.prototype.handle = function (op, p, who) {
     case 'saveLocation': return this.saveLocation(p);
     case 'saveLocations': return this.saveLocations(p);
     case 'savePart': return this.savePart(p, who);
+    case 'setReorder': return this.setReorder(p);
     case 'history': return this.history(p);
     case 'addStaff': return this.addStaff(p);
     case 'setStaff': return this.setStaff(p, who);

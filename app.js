@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.8 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.10 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -221,13 +221,18 @@
 
   /* ---------------- data ---------------- */
   var snap = { parts: [], locations: [], staff: [], counts: [], version: -1 };
-  var P = {}, L = {}, BY = {};
+  var P = {}, L = {}, BY = {}, LK = {}, BOXES = {};   // L: box -> first row · LK: box|sku -> row · BOXES: box -> rows (a box can hold several parts)
   var online = true;
 
   function index() {
-    P = {}; L = {}; BY = {};
+    P = {}; L = {}; BY = {}; LK = {}; BOXES = {};
     snap.parts.forEach(function (p) { P[p.sku] = p; });
-    snap.locations.forEach(function (l) { L[String(l.loc).toUpperCase()] = l; L[normLoc_(l.loc)] = l; (BY[l.sku] = BY[l.sku] || []).push(l); });
+    snap.locations.forEach(function (l) {
+      var k = normLoc_(l.loc);
+      if (!L[k] || (!L[k].sku && l.sku)) { L[k] = l; L[String(l.loc).toUpperCase()] = l; }
+      LK[k + '|' + l.sku] = l; (BOXES[k] = BOXES[k] || []).push(l);
+      if (l.sku) (BY[l.sku] = BY[l.sku] || []).push(l);
+    });
     var dl = $('skuList');
     dl.innerHTML = snap.parts.map(function (p) { return '<option value="' + esc(p.sku) + '">' + esc(p.name) + '</option>'; }).join('');
   }
@@ -263,9 +268,14 @@
   var queue = load('inv.queue', []).filter(function (q) { return q.status === 'wait' || q.ts.slice(0, 10) === today(); });
   function saveQueue() { save('inv.queue', queue.slice(-200)); }
 
+  /** The row of part `sku` in box `loc` (or the box's first row when no part is given). */
+  function lk(loc, sku) { var k = normLoc_(loc); return sku ? LK[k + '|' + sku] || null : L[k] || null; }
+  /** Parts in a box (rows that hold a known part). */
+  function inBox(loc) { return (BOXES[normLoc_(loc)] || []).filter(function (l) { return P[l.sku]; }); }
+
   /** Local effect of a movement so the screen updates instantly. */
   function effect(p, sign) {
-    var src = L[p.loc], dst = p.to_loc && L[p.to_loc], q = num(p.qty) * sign;
+    var src = lk(p.loc, p.sku), dst = p.to_loc && lk(p.to_loc, p.sku), q = num(p.qty) * sign;
     if (!src) return;
     if (p.type === 'OUT' || p.type === 'SCRAP') src.qty = String(num(src.qty) - q);
     else if (p.type === 'RETURN' || p.type === 'RECEIVE') src.qty = String(num(src.qty) + q);
@@ -296,16 +306,17 @@
     flushing = true; setStatus();
     api(next.op, next.p, next.auth).then(function (r) {
       next.status = 'sent'; online = true; saveQueue();
-      if (r.loc && L[r.loc.loc]) L[r.loc.loc].qty = String(r.loc.qty);
-      if (r.to && L[r.to.loc]) L[r.to.loc].qty = String(r.to.qty);
+      var a = r.loc && lk(r.loc.loc, r.loc.sku || next.p.sku), b = r.to && lk(r.to.loc, r.to.sku || next.p.sku);
+      if (a) a.qty = String(r.loc.qty);
+      if (b) b.qty = String(r.to.qty);
       if (r.version) snap.version = r.version;
       flushing = false; renderAll(); flush();
-      if (next.op === 'putAway' || next.op === 'moveStock') refresh();   // a new box may have been set up
+      if (next.op === 'putAway' || next.op === 'moveStock' || r.released) refresh();   // a box was set up, or let go of a part
     }).catch(function (e) {
       flushing = false;
       if (!e.business) { online = false; setStatus(); setTimeout(flush, 8000); return; }
       // rejected by the rules: undo the local effect and tell the user
-      if (EFFECT_OPS[next.op]) { if (next.p.type === 'SEAL' && next.p._was != null && L[next.p.loc]) L[next.p.loc].qty = next.p._was; else effect(next.p, -1); }
+      if (EFFECT_OPS[next.op]) { if (next.p.type === 'SEAL' && next.p._was != null && lk(next.p.loc, next.p.sku)) lk(next.p.loc, next.p.sku).qty = next.p._was; else effect(next.p, -1); }
       if (e.extra && e.extra.code === 'SHORT' && !next.p.force) {
         next.status = 'held'; saveQueue(); renderAll();
         askShort(next, e);
@@ -379,7 +390,7 @@
     var s = String(code || '').trim();
     if (!s) return null;
     var up = s.toUpperCase();
-    if (L[up] || L[normLoc_(s)]) return { loc: L[up] || L[normLoc_(s)] };
+    if (L[up] || L[normLoc_(s)]) { var box = L[up] || L[normLoc_(s)]; return { loc: box, box: box.loc, rows: inBox(box.loc) }; }
     if (P[up]) return { sku: up };
     var ns = snap.parts.filter(function (p) { return p.ns_sku && p.ns_sku === s; })[0];
     if (ns) return { sku: ns.sku };
@@ -619,7 +630,7 @@
     var total = locs.reduce(function (a, l) { return a + num(l.qty); }, 0);
     var bins = locs.filter(function (l) { return l.type === 'BIN'; });
     var min = bins.reduce(function (a, l) { return a + num(l.min); }, 0);
-    return { locs: locs, total: total, low: bins.length > 0 && min > 0 && bins.reduce(function (a, l) { return a + num(l.qty); }, 0) <= min };
+    return { locs: locs, total: total, low: locs.length > 0 && total <= reorderLevel_(P[sku]) };
   }
   function codeOf(p) { return p.ns_sku || (/Catalogue code (\S+)/.exec(p.notes || '') || [])[1] || p.sku; }
   function matchParts(text) {
@@ -633,7 +644,49 @@
     });
   }
 
+  /* ---------------- TO ORDER ----------------
+   * A part is on the list when it has been put in a box before and its stock (all boxes together) is at or below
+   * its order level.  Banner on the Parts screen, a reminder once a day, and a list you can copy into WhatsApp or an email. */
+  function toOrder() {
+    return snap.parts.filter(function (p) { return stockOf(p.sku).low; }).map(function (p) {
+      return { p: p, total: stockOf(p.sku).total, level: reorderLevel_(p) };
+    }).sort(function (a, b) { return (a.total > 0) - (b.total > 0) || a.p.model.localeCompare(b.p.model) || a.p.name.localeCompare(b.p.name); });
+  }
+  function renderOrderBanner() {
+    var list = toOrder(), out = list.filter(function (r) { return r.total <= 0; }).length;
+    $('orderBanner').innerHTML = list.length ? '<button type="button" class="orderbar" id="orderOpen"><b>⚠ ' + list.length + ' part' + (list.length > 1 ? 's' : '') + ' to order</b>' +
+      (out ? '<span>' + out + ' out of stock</span>' : '<span>running low</span>') + '<i>View list ›</i></button>' : '';
+    if ($('orderOpen')) $('orderOpen').onclick = openOrderList;
+    if (list.length && load('inv.orderNag', '') !== today() && signedIn()) {
+      save('inv.orderNag', today());
+      setTimeout(function () { toast(list.length + ' part' + (list.length > 1 ? 's' : '') + ' to order. See the list on the Parts screen.', 'bad'); }, 1200);
+    }
+  }
+  function orderText(list) {
+    return 'Parts to order (' + today() + ')\n' + list.map(function (r) {
+      return '- ' + codeOf(r.p) + ' ' + r.p.name + ' [' + (MODEL_TAG[r.p.model] || r.p.model) + '] · ' + (r.total <= 0 ? 'OUT' : r.total + ' left') + ' (order at ' + r.level + ')';
+    }).join('\n');
+  }
+  function openOrderList() {
+    var list = toOrder();
+    modal('<h3 class="formtitle">Parts to order (' + list.length + ')</h3>' +
+      '<p class="hint">Stock at or below the order level, counted over all bins and boxes. Out of stock first.</p>' +
+      '<div class="ordlist">' + list.map(function (r) {
+        return '<button type="button" class="ordrow" data-sku="' + esc(r.p.sku) + '"><span class="pc-ph' + (r.p.photo_id ? '" data-photo="' + esc(r.p.photo_id) + '"' : ' none"') + '></span>' +
+          '<span class="ot"><b>' + esc(r.p.name) + '</b><small class="mono">' + esc(codeOf(r.p)) + ' · ' + esc(MODEL_TAG[r.p.model] || r.p.model) + '</small></span>' +
+          '<span class="oq' + (r.total <= 0 ? ' out' : '') + '">' + (r.total <= 0 ? 'OUT' : r.total + ' left') + '<small>order at ' + r.level + '</small></span></button>';
+      }).join('') + '</div>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big ok" data-x="stay" id="orderCopy">Copy list</button></div>');
+    qsa('#modalBody .ordrow').forEach(function (b) { b.onclick = function () { closeModal(); openPart(b.dataset.sku); }; });
+    $('orderCopy').onclick = function () {
+      var t = orderText(list);
+      (navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('List copied. Paste it in WhatsApp or an email.', 'good'); },
+        function () { var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); toast('List copied', 'good'); } catch (e) {} ta.remove(); });
+    };
+    setTimeout(fillPhotos, 0);
+  }
   function renderTake() {
+    renderOrderBanner();
     var q = $('scanInput').value.trim(), onlyStock = $('inStockOnly').checked;
     $('modelCards').innerHTML = MODEL_CARDS.map(function (m) {
       var parts = snap.parts.filter(function (p) { return p.model === m.k; });
@@ -683,10 +736,29 @@
     }).join('') : '<p class="hint">Nothing yet today.</p>';
   }
 
+  /** A box with one part: go straight on.  A box with several parts: show what is inside and let the user tap one. */
+  function chooseInBox(box, cb, filter) {
+    var rows = inBox(box).filter(filter || function () { return true; });
+    if (!rows.length) return toast('Nothing usable in ' + box, 'bad');
+    if (rows.length === 1) return cb(rows[0]);
+    modal('<h3 class="formtitle">' + esc(normLoc_(box)) + ' · ' + KIND[kindOf(box)].name + '</h3><p class="hint">' + rows.length + ' parts in this box. Tap one.</p>' +
+      '<div class="ordlist">' + rows.map(function (l, i) {
+        var pt = P[l.sku];
+        return '<button type="button" class="ordrow" data-i="' + i + '"><span class="pc-ph' + (pt.photo_id ? '" data-photo="' + esc(pt.photo_id) + '"' : ' none"') + '></span>' +
+          '<span class="ot"><b>' + esc(pt.name) + '</b><small class="mono">' + esc(codeOf(pt)) + ' · ' + esc(MODEL_TAG[pt.model] || pt.model) + '</small></span>' +
+          '<span class="oq">' + num(l.qty) + '<small>pcs</small></span></button>';
+      }).join('') + '</div><div class="btns"><button type="button" class="big" data-x="close">Close</button></div>');
+    qsa('#modalBody .ordrow').forEach(function (b) { b.onclick = function () { closeModal(); cb(rows[num(b.dataset.i)]); }; });
+    setTimeout(fillPhotos, 0);
+  }
   /** Scan / Enter in the search box: a box label or exact SKU opens the part; otherwise the grid shows matches. */
   function scanTake(code) {
     var r = resolve(code);
-    if (r && r.loc) { if (!P[r.loc.sku]) { beep(false); return toast(r.loc.loc + ' is an empty box. Open a part and use Add stock.', 'bad'); } beep(true); $('scanInput').value = ''; return openPart(r.loc.sku, r.loc.loc); }
+    if (r && r.loc) {
+      if (!r.rows.length) { beep(false); return toast(r.box + ' is an empty box. Open a part and use Add stock.', 'bad'); }
+      beep(true); $('scanInput').value = '';
+      return chooseInBox(r.box, function (l) { openPart(l.sku, l.loc); });
+    }
     if (r && r.sku) { beep(true); $('scanInput').value = ''; return openPart(r.sku); }
     var hits = matchParts(code);
     if (hits.length === 1) { beep(true); $('scanInput').value = ''; return openPart(hits[0].sku); }
@@ -719,10 +791,19 @@
       var id = normLoc_(l.loc); if (id.indexOf(pre) !== 0) return;
       var n = Number(id.slice(pre.length)); if (!(n > 0)) return;
       max = Math.max(max, n);
-      if (!free && !l.sku && num(l.qty) === 0) free = id;   // an empty box that has a code but no part yet
+      if (!free && !l.sku && num(l.qty) === 0 && !inBox(id).length) free = id;   // a box that has a code but no part in it
     });
     queue.forEach(function (q) { var to = q.p && normLoc_(q.p.loc || q.p.to || ''); if (to && to.indexOf(pre) === 0) max = Math.max(max, Number(to.slice(pre.length)) || 0); });   // not sent yet
     return free || normLoc_(pre + (max + 1));
+  }
+  /** Boxes of this kind and model that already hold other parts: a part can be put in with them (mixed box).
+   *  Newest codes first, at most 6. */
+  function sharedBoxes(kind, model, mine) {
+    var pre = (CODE_MODEL[model] || 'UNI') + '-' + (kind === 'TOTE' ? 'T' : 'B'), have = {};
+    (mine || []).forEach(function (l) { have[normLoc_(l.loc)] = 1; });
+    return Object.keys(BOXES).filter(function (k) { return k.indexOf(pre) === 0 && !have[k] && inBox(k).length; })
+      .sort(function (a, b) { return b.localeCompare(a, undefined, { numeric: true }); }).slice(0, 6)
+      .map(function (k) { return { loc: k, n: inBox(k).length }; });
   }
   function boxInput(label, st) {
     var k = sel.kind, mine = st.locs.filter(function (l) { return kindOf(l.loc) === k; });
@@ -734,7 +815,8 @@
     var h = '<label class="lbl">' + label + '</label><div class="kinds">' + ['BIN', 'TOTE'].map(function (x) {
         return '<button type="button" class="kindbtn ' + KIND[x].cls + (x === k ? ' on' : '') + '" data-kind="' + x + '"><i></i>' + KIND[x].name + '</button>';
       }).join('') + '</div><div class="picks">';
-    mine.forEach(function (l) { h += chip(l.loc, 'Same ' + KIND[k].name.toLowerCase(), num(l.qty) + ' pcs already'); });
+    mine.forEach(function (l) { h += chip(l.loc, 'Same ' + KIND[k].name.toLowerCase(), num(l.qty) + ' pcs already' + (inBox(l.loc).length > 1 ? ' · ' + inBox(l.loc).length + ' parts inside' : '')); });
+    sharedBoxes(k, (P[sel.sku] || {}).model, mine).forEach(function (b) { h += chip(b.loc, 'Shared ' + KIND[k].name.toLowerCase(), b.n + ' part' + (b.n > 1 ? 's' : '') + ' inside', ' shared'); });
     if (mine.every(function (l) { return l.loc !== auto; })) h += chip(auto, mine.length ? 'Or a new one' : 'New ' + KIND[k].name.toLowerCase(), 'next free number', ' new');
     h += '</div>';
     h += '<details class="more typebox"><summary>Or scan / type a label</summary><div class="scanrow"><input id="boxInput" class="scan" placeholder="e.g. ' + KIND[k].eg + '" value="' + esc(sel.pick) + '" autocomplete="off" autocapitalize="characters"><button type="button" class="cam" data-cam="boxInput" title="Scan box label">📷</button></div></details>';
@@ -752,7 +834,10 @@
       '<input type="file" id="photoCamPick" accept="image/*" capture="environment" hidden><input type="file" id="photoPick" accept="image/*" hidden></div>' +
       '<div class="pd-info"><span class="mtag m-' + esc(p.model) + '"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + esc((MODELS[p.model] || {}).name || '') + '</span>' +
       '<h3>' + esc(p.name) + '</h3><div class="pd-sku">SKU <b class="mono">' + esc(codeOf(p)) + '</b></div>' +
-      '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : 'Not in stock yet') + '</div></div></div>' +
+      '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : st.locs.length ? '<b>0</b> in stock' : 'Not in stock yet') + (st.low ? ' <span class="pill err">ORDER</span>' : '') + '</div>' +
+      '<details class="ordlvl"><summary>Order when ' + reorderLevel_(p) + ' or fewer left' + (String(p.reorder_at || '') === '' ? ' (default)' : '') + ' · change</summary>' +
+      '<div class="stepper sm"><button type="button" data-step="-1">−</button><input id="ordLevel" type="number" inputmode="numeric" min="0" value="' + reorderLevel_(p) + '"><button type="button" data-step="1">+</button></div>' +
+      '<button type="button" class="photobtn" id="ordSave">Save order level</button></details></div></div>' +
       '<div class="pd-facts"><div><small>Price</small><b>' + (price(p) == null ? '—' : '€ ' + price(p).toFixed(2)) + '</b>' + (price(p) == null ? '' : '<small>AED ' + (price(p) * AED_PER_EUR).toFixed(2) + '</small>') + '</div>' +
       '<div><small>Weight</small><b>' + (num(p.weight_g) > 0 ? esc(p.weight_g) + ' g' : '—') + '</b></div>' +
       '<div><small>HS code</small><b class="mono">' + (p.hs_code ? esc(p.hs_code) : '—') + '</b></div></div>' +
@@ -781,6 +866,12 @@
     });
     qsa('#modalBody [data-cam]').forEach(function (b) { b.onclick = function () { openCam(b.dataset.cam); }; });
     $('photoCam').onclick = function () { $('photoCamPick').click(); };    // opens the camera straight away
+    $('ordSave').onclick = function () {
+      var v = Math.max(0, Math.round(num($('ordLevel').value)));
+      api('setReorder', { sku: p.sku, level: v }).then(function () {
+        p.reorder_at = String(v); toast('Order ' + p.name + ' when ' + v + ' or fewer are left', 'good'); renderPart(); renderAll();
+      }).catch(function (e) { toast(e.business ? e.message : 'Saving needs a connection. Try again.', 'bad'); });
+    };
     $('photoGal').onclick = function () { $('photoPick').click(); };       // picks a saved photo
     $('photoCamPick').onchange = $('photoPick').onchange = function () { var f = this.files && this.files[0]; this.value = ''; if (f) uploadPhoto(p.sku, f); };
     qsa('#modalBody [data-kind]').forEach(function (b) { b.onclick = function () { var q = $('fQty').value; sel.kind = b.dataset.kind; sel.pick = null; renderPart(); $('fQty').value = q; }; });
@@ -811,7 +902,7 @@
   }
   document.addEventListener('click', function (e) {
     var b = e.target.closest('.stepper button'); if (!b) return;
-    var inp = b.parentNode.querySelector('input'); inp.value = Math.max(1, num(inp.value) + num(b.dataset.step));
+    var inp = b.parentNode.querySelector('input'); inp.value = Math.max(inp.id === 'ordLevel' ? 0 : 1, num(inp.value) + num(b.dataset.step));
   });
 
   /** Take or pick a photo on the phone: made small, saved for this part, shown on every phone. */
@@ -845,8 +936,6 @@
     if (mode === 'ADD' || mode === 'MOVE') {
       var to = normLoc_($('boxInput').value);
       if (!KIND[sel.kind].re.test(to)) { $('boxInput').focus(); return toast('A ' + KIND[sel.kind].name.toLowerCase() + ' label looks like ' + KIND[sel.kind].eg + (sel.kind === 'BIN' ? ' (or R1-S1-B02-A)' : ''), 'bad'); }
-      var there = L[to];
-      if (there && there.sku && there.sku !== p.sku && num(there.qty) !== 0) return toast(to + ' already holds ' + (P[there.sku] || { name: there.sku }).name + '. Use another box.', 'bad');
       if (mode === 'ADD') {
         item = { id: uid(), type: 'RECEIVE', sku: p.sku, loc: to, qty: qty, device: cfg.device };
         enqueue('putAway', item, '+' + qty + ' ' + p.name + ' → ' + KIND[sel.kind].name.toLowerCase() + ' ' + to);
@@ -856,18 +945,19 @@
         if (!box) return toast('Tap the box to move from', 'bad');
         if (to === box) return toast('Choose a different box', 'bad');
         item = { id: uid(), type: 'TRANSFER', sku: p.sku, from: box, to: to, loc: box, to_loc: to, qty: qty, device: cfg.device };
+        if (qty >= num((lk(box, p.sku) || {}).qty)) setTimeout(function () { toast('All moved: ' + box + ' no longer holds ' + p.name + '.', 'good'); }, 1800);
         enqueue('moveStock', item, '⇄ ' + qty + ' ' + p.name + ' ' + box + ' → ' + to);
         toast('Moved ' + qty + ' from ' + KIND[kindOf(box)].name.toLowerCase() + ' ' + box + ' to ' + KIND[sel.kind].name.toLowerCase() + ' ' + to, 'good');
       }
     } else {
-      if (!box || !L[box]) return toast('Tap the box first', 'bad');
+      if (!box || !lk(box, p.sku)) return toast('Tap the box first', 'bad');
       var veh = $('vehInput') ? vehicleFrom($('vehInput').value) : '';
-      if ((mode === 'OUT' || mode === 'SCRAP') && L[box].type === 'TOTE') return toast(box + ' is a white box. Use More → Move to put stock into a blue bin first.', 'bad');
+      if ((mode === 'OUT' || mode === 'SCRAP') && lk(box, p.sku).type === 'TOTE') return toast(box + ' is a white box. Use More → Move to put stock into a blue bin first.', 'bad');
       item = { id: uid(), type: mode, loc: box, sku: p.sku, qty: qty, vehicle: veh, note: $('noteInput') ? $('noteInput').value.trim() : '', device: cfg.device };
       var verb = { OUT: '−', RETURN: '+', SCRAP: '✕ −' }[mode];
       enqueue('move', item, verb + qty + ' ' + p.name);
-      toast(verb + qty + ' ' + p.name + ' · ' + box + ' now ' + num(L[box].qty), 'good');
-      var nowLoc = L[box];
+      toast(verb + qty + ' ' + p.name + ' · ' + box + ' now ' + num(lk(box, p.sku).qty), 'good');
+      var nowLoc = lk(box, p.sku);
       if (nowLoc.type === 'BIN' && num(nowLoc.min) > 0 && num(nowLoc.qty) <= num(nowLoc.min) && mode !== 'RETURN') {
         var totes = (BY[p.sku] || []).filter(function (l) { return l.type === 'TOTE' && num(l.qty) > 0; });
         setTimeout(function () { toast('Low stock in blue bin ' + box + ' (' + num(nowLoc.qty) + ' left). ' + (totes.length ? 'Refill it from white box ' + totes[0].loc + ' (More → Move).' : 'Reorder.'), 'bad'); }, 1800);
@@ -887,15 +977,15 @@
   });
   function scanRestock(code) {
     var r = resolve(code), loc = r && r.loc;
+    var go = function (l) { rs = { loc: l.loc, sku: l.sku }; $('rsQty').value = Math.max(1, num(l.qty)); renderRestock(); };
     if (r && r.sku) loc = (BY[r.sku] || []).filter(function (l) { return l.type === 'TOTE' && (rsMode === 'seal' || num(l.qty) > 0); })[0];
-    if (!loc || loc.type !== 'TOTE') { beep(false); toast(r ? 'No sealed tote found for that. Scan the tote label (T-…).' : 'Not found: ' + code, 'bad'); return; }
-    if (!P[loc.sku]) { beep(false); toast(loc.loc + ' has no part assigned. Set it up in Setup.', 'bad'); return; }
-    beep(true); rs = { loc: loc.loc };
-    $('rsQty').value = rsMode === 'open' ? Math.max(1, num(loc.qty)) : Math.max(1, num(loc.qty));
-    renderRestock();
+    if (!loc || loc.type !== 'TOTE') { beep(false); toast(r ? 'No white box found for that. Scan the white box label.' : 'Not found: ' + code, 'bad'); return; }
+    if (r && r.sku) { beep(true); return go(loc); }
+    if (!inBox(loc.loc).length) { beep(false); toast(loc.loc + ' is empty. Use Add stock on a part first.', 'bad'); return; }
+    beep(true); chooseInBox(loc.loc, go);
   }
   function renderRestock() {
-    var loc = rs && L[rs.loc], part = loc && P[loc.sku];
+    var loc = rs && lk(rs.loc, rs.sku), part = loc && P[loc.sku];
     $('restockCard').classList.toggle('hidden', !part); $('restockForm').classList.toggle('hidden', !part);
     if (!part) return;
     $('restockCard').innerHTML = partCard(part, loc);
@@ -906,7 +996,7 @@
     $('rsGo').textContent = rsMode === 'open' ? 'Break seal and move to bin' : 'Seal tote';
   }
   $('rsGo').onclick = function () {
-    var loc = rs && L[rs.loc]; if (!loc) return;
+    var loc = rs && lk(rs.loc, rs.sku); if (!loc) return;
     var part = P[loc.sku], qty = Math.round(num($('rsQty').value));
     if (qty < 1) return toast('Quantity must be 1 or more', 'bad');
     if (!signedIn()) return showSignIn();
@@ -930,8 +1020,8 @@
     return snap.parts.map(function (p) {
       var locs = BY[p.sku] || [], bins = locs.filter(function (l) { return l.type === 'BIN'; }), totes = locs.filter(function (l) { return l.type === 'TOTE'; });
       var binQty = bins.reduce(function (a, l) { return a + num(l.qty); }, 0), toteQty = totes.reduce(function (a, l) { return a + num(l.qty); }, 0);
-      var min = bins.reduce(function (a, l) { return a + num(l.min); }, 0), pr = price(p);
-      return { p: p, bins: bins, totes: totes, binQty: binQty, toteQty: toteQty, min: min, low: bins.length > 0 && min > 0 && binQty <= min,
+      var min = reorderLevel_(p), pr = price(p);
+      return { p: p, bins: bins, totes: totes, binQty: binQty, toteQty: toteQty, min: min, low: locs.length > 0 && binQty + toteQty <= min,
         value: pr == null ? null : pr * (binQty + toteQty) };
     });
   }
@@ -962,7 +1052,7 @@
       '<div class="fact' + (rows.some(function (r) { return r.low; }) ? ' low' : '') + '"><small>Low stock</small><b>' + rows.filter(function (r) { return r.low; }).length + '</b></div>' +
       '<div class="fact"><small>Stock value' + (noPrice ? ' (' + noPrice + ' parts have no price)' : '') + '</small><b>' + money(tv) + '</b><small>' + money(tv * AED_PER_EUR, 'AED') + '</small></div>';
     var show = rows.slice(0, 400);
-    $('stockTable').innerHTML = '<thead><tr><th></th><th>SKU</th><th>Part</th><th>Bin</th><th class="n">In bin</th><th class="n">Min</th><th class="n">Totes</th><th class="n">Total</th><th class="n">Value €</th></tr></thead><tbody>' +
+    $('stockTable').innerHTML = '<thead><tr><th></th><th>SKU</th><th>Part</th><th>Bin</th><th class="n">In bin</th><th class="n">Order at</th><th class="n">Totes</th><th class="n">Total</th><th class="n">Value €</th></tr></thead><tbody>' +
       show.map(function (r) {
         return '<tr class="' + (r.low ? 'low' : '') + '" data-sku="' + esc(r.p.sku) + '"><td><span class="swatch sw-' + esc(r.p.model) + '" style="height:18px;display:block"></span></td>' +
           '<td class="mono">' + esc(codeOf(r.p)) + '</td><td>' + esc(r.p.name) + (r.low ? ' <span class="pill err">LOW</span>' : '') + '</td>' +
@@ -1035,9 +1125,9 @@
     $('schedList').innerHTML = s.list.map(function (l) {
       var p = P[l.sku], did = l.last_count === today();
       return '<div class="item"><span class="swatch sw-' + esc(p.model) + '"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">SKU ' + esc(codeOf(p)) + ' · last counted ' + esc(l.last_count || 'never') + '</div></div>' +
-        (did ? '<span class="pill done">Counted ✓</span>' : '<button data-count="' + esc(l.loc) + '">Count</button>') + '</div>';
+        (did ? '<span class="pill done">Counted ✓</span>' : '<button data-count="' + esc(l.loc) + '" data-csku="' + esc(l.sku) + '">Count</button>') + '</div>';
     }).join('');
-    qsa('[data-count]').forEach(function (b) { b.onclick = function () { countLoc(b.dataset.count); }; });
+    qsa('[data-count]').forEach(function (b) { b.onclick = function () { countLoc(b.dataset.count, b.dataset.csku); }; });
 
     var rv = snap.counts || [];
     $('reviewN').textContent = rv.length;
@@ -1066,7 +1156,7 @@
     }
     if (!accept) {
       // a rejected difference leaves stock as it is; ask for a fresh count of that bin
-      go(); setTimeout(function () { countLoc(c.loc); }, 300); return;
+      go(); setTimeout(function () { countLoc(c.loc, c.sku); }, 300); return;
     }
     go();
   }
@@ -1075,11 +1165,13 @@
     var r = resolve(code), loc = r && r.loc;
     if (r && r.sku) loc = (BY[r.sku] || []).filter(function (l) { return l.type === 'BIN'; })[0];
     if (!loc) { beep(false); toast('Not found: ' + code, 'bad'); return; }
-    beep(true); countLoc(loc.loc);
+    beep(true);
+    if (r && r.sku) return countLoc(loc.loc, loc.sku);
+    chooseInBox(loc.loc, function (l) { countLoc(l.loc, l.sku); });
   }
 
-  function countLoc(locId, attempt) {
-    var loc = L[locId], part = loc && P[loc.sku]; if (!part) return;
+  function countLoc(locId, sku, attempt) {
+    var loc = sku ? lk(locId, sku) : lk(locId), part = loc && P[loc.sku]; if (!part) return;
     attempt = attempt || 1;
     var byWeight = part.abc === 'C' && num(part.weight_g) > 0;
     modal(partCard(part, loc, { blind: true }) +
@@ -1106,10 +1198,10 @@
       var v = $('cntN').value; if (v === '') return toast(grams() ? 'Enter the grams from the scale' : 'Enter the number you counted', 'bad');
       if (grams()) v = piecesFromGrams_(v, part.weight_g);
       $('cntGo').disabled = true;
-      api('count', { id: uid(), loc: loc.loc, counted: num(v), attempt: attempt }).then(function (r) {
-        if (r.recount) { beep(false); countLoc(locId, 2); return; }
+      api('count', { id: uid(), loc: loc.loc, sku: loc.sku, counted: num(v), attempt: attempt }).then(function (r) {
+        if (r.recount) { beep(false); countLoc(locId, loc.sku, 2); return; }
         closeModal();
-        if (r.match) { beep(true); toast(loc.loc + ' matches ✓', 'good'); }
+        if (r.match) { beep(true); toast(loc.loc + ' · ' + part.name + ' matches ✓', 'good'); }
         else { beep(false); toast(loc.loc + ' saved. Difference sent to the supervisor.', 'bad'); }
         loc.last_count = today();
         refresh();
@@ -1131,12 +1223,12 @@
   function labelPool() {
     var q = $('labelSearch').value.trim().toLowerCase();
     if (lbMode === 'RACK') return RACKS.filter(function (r) { return !q || r.loc.toLowerCase().indexOf(q) >= 0; });
-    return snap.locations.filter(function (l) {
-      if (l.type !== lbMode || !P[l.sku]) return false;
-      if (!q) return true;
-      var p = P[l.sku];
-      return (l.loc + ' ' + p.sku + ' ' + p.name + ' ' + p.model).toLowerCase().indexOf(q) >= 0;
-    }).sort(function (a, b) { return a.loc.localeCompare(b.loc, undefined, { numeric: true }); });
+    return Object.keys(BOXES).map(function (k) { var rows = inBox(k); return rows.length ? { loc: k, type: rows[0].type, rows: rows } : null; })
+      .filter(function (b) {
+        if (!b || b.type !== lbMode) return false;
+        if (!q) return true;
+        return (b.loc + ' ' + b.rows.map(function (l) { var p = P[l.sku]; return p.sku + ' ' + p.ns_sku + ' ' + p.name + ' ' + p.model; }).join(' ')).toLowerCase().indexOf(q) >= 0;
+      }).sort(function (a, b) { return a.loc.localeCompare(b.loc, undefined, { numeric: true }); });
   }
   function renderLabels() {
     var pool = labelPool();
@@ -1150,9 +1242,11 @@
       $('labelPrint').textContent = 'Print selected signs (' + n + ')';
       return;
     }
-    $('labelList').innerHTML = pool.length ? pool.map(function (l) {
-      var p = P[l.sku];
-      return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(l.loc) + '"' + (lbSel[l.loc] ? ' checked' : '') + '><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">SKU ' + esc(codeOf(p)) + (l.type === 'TOTE' ? ' · qty ' + num(l.qty) + ' · sealed ' + esc(l.sealed_date || '-') : '') + '</div></div></label>';
+    $('labelList').innerHTML = pool.length ? pool.map(function (b) {
+      var p = P[b.rows[0].sku], mixed = b.rows.length > 1;
+      return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · ' +
+        (mixed ? 'Mixed box · ' + b.rows.length + ' parts' : esc(p.name)) + '</div><div class="t2">' +
+        (mixed ? esc(b.rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) : 'SKU ' + esc(codeOf(p)) + (b.type === 'TOTE' ? ' · qty ' + num(b.rows[0].qty) : '')) + '</div></div></label>';
     }).join('') : '<p class="hint">No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.</p>';
     qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
     $('labelPrint').textContent = 'Print selected labels (' + n + ')';
@@ -1176,8 +1270,7 @@
       setTimeout(function () { window.print(); }, 150);
       return;
     }
-    var chosen = snap.locations.filter(function (l) { return lbSel[l.loc] && l.type === lbMode && P[l.sku]; })
-      .sort(function (a, b) { return a.loc.localeCompare(b.loc, undefined, { numeric: true }); });
+    var chosen = labelPool().filter(function (b) { return lbSel[b.loc]; });
     if (!chosen.length) return toast('Tick the labels to print first', 'bad');
     loadScript(QR_LIB).catch(function () { toast('QR code library could not load. Labels will print without QR codes.', 'bad'); }).then(function () {
       var html = '';
@@ -1186,18 +1279,28 @@
         var padT = Math.max(0, (297 - rows * h) / 2), padL = Math.max(0, (210 - cols * w) / 2);
         for (var i = 0; i < chosen.length; i += per) {
           html += '<div class="page" style="padding:' + padT + 'mm ' + padL + 'mm;grid-template-columns:repeat(' + cols + ',' + w + 'mm);grid-template-rows:repeat(' + rows + ',' + h + 'mm)">';
-          chosen.slice(i, i + per).forEach(function (l) {
-            var p = P[l.sku], m = MODELS[p.model];
-            html += '<div class="lab c-' + p.model + '"><div class="lh"><span>' + esc(m.name) + '</span><span>' + esc(p.system) + ' · ' + esc(p.abc) + '</span></div>' +
-              '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div class="lsku">' + esc(codeOf(p)) + '</div><div class="lname">' + esc(p.name) + '</div><div class="lloc">' + esc(l.loc) + '</div></div></div></div>';
+          chosen.slice(i, i + per).forEach(function (b) {
+            var p = P[b.rows[0].sku], m = MODELS[p.model], mixed = b.rows.length > 1;
+            html += '<div class="lab c-' + p.model + '"><div class="lh"><span>' + esc(m.name) + '</span><span>' + (mixed ? 'MIXED · ' + b.rows.length : esc(p.system) + ' · ' + esc(p.abc)) + '</span></div>' +
+              '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt">' +
+              (mixed ? '<div class="lname lmix">' + b.rows.map(function (l) { return esc(P[l.sku].name); }).join(' · ') + '</div>'
+                     : '<div class="lsku">' + esc(codeOf(p)) + '</div><div class="lname">' + esc(p.name) + '</div>') +
+              '<div class="lloc">' + esc(b.loc) + '</div></div></div></div>';
           });
           html += '</div>';
         }
       } else {
         for (var j = 0; j < chosen.length; j += 2) {
           html += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">';
-          chosen.slice(j, j + 2).forEach(function (l) {
-            var p = P[l.sku], m = MODELS[p.model];
+          chosen.slice(j, j + 2).forEach(function (b) {
+            var l = b.rows[0], p = P[l.sku], m = MODELS[p.model];
+            if (b.rows.length > 1) {
+              html += '<div class="lab tote c-' + p.model + '"><div class="lh"><span>MIXED BOX · ' + esc(m.name) + '</span><span>' + esc(b.loc) + '</span></div>' +
+                '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt"><div class="lmixlist">' + b.rows.map(function (x) {
+                  return '<div><b>' + num(x.qty) + '</b> × ' + esc(P[x.sku].name) + ' <span>' + esc(codeOf(P[x.sku])) + '</span></div>';
+                }).join('') + '</div><div class="tmeta">Packed ' + esc(today()) + '</div></div></div></div>';
+              return;
+            }
             html += '<div class="lab tote c-' + p.model + '"><div class="lh"><span>SEALED BULK · ' + esc(m.name) + '</span><span>' + esc(l.loc) + '</span></div>' +
               '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div><div class="lname">' + esc(p.name) + '</div><div class="lsku">' + esc(codeOf(p)) + '</div></div>' +
               '<div><div class="tmeta">EXACT QUANTITY</div><div class="tq">' + num(l.qty) + '</div><div class="tmeta">Sealed ' + esc(l.sealed_date || today()) + (l.notes ? ' · ' + esc(l.notes) : '') + '</div></div>' +

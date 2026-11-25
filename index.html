@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Stocks">
-<link rel="stylesheet" href="style.css?v=2.8">
+<link rel="stylesheet" href="style.css?v=2.10">
 </head>
 <body>
 <header class="top">
@@ -37,6 +37,7 @@
       <label class="search"><span aria-hidden="true">🔍</span><input id="scanInput" type="search" placeholder="Search part, SKU, NetSuite no. or model…" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Search parts"></label>
       <button class="scanbtn" type="button" data-cam="scanInput"><span>📷</span> Scan</button>
     </div>
+    <div id="orderBanner"></div>
     <p class="secthead">Models</p>
     <div id="modelCards" class="models"></div>
     <div class="gridhead"><p class="secthead"><span id="gridTitle">All parts</span> <small id="gridCount"></small></p>
@@ -254,8 +255,8 @@
 <div id="toast" class="toast hidden"></div>
 <div id="printArea"></div>
 
-<script src="core.js?v=2.8"></script>
-<script src="demo-seed.js?v=2.8"></script>
-<script src="app.js?v=2.8"></script>
+<script src="core.js?v=2.10"></script>
+<script src="demo-seed.js?v=2.10"></script>
+<script src="app.js?v=2.10"></script>
 </body>
 </html>
