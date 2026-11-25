@@ -991,7 +991,7 @@
     $('siConn').style.display = EMBED ? 'none' : '';
     $('siUrl').value = cfg.url || '';
     var m = mode();
-    $('siConnHint').textContent = m === 'DEMO' ? 'Demo mode (sample data on this device). Demo PINs: Mechanic A 1111, Mechanic B 2222, Supervisor 9999, Admin 1234.' : 'Connected to ' + (m === 'EMBED' ? 'the Apps Script link.' : cfg.url);
+    $('siConnHint').textContent = m === 'DEMO' ? 'Not connected yet: this is demo mode with sample data (demo PINs: Mechanic A 1111, Mechanic B 2222, Supervisor 9999, Admin 1234). Type your workshop code to connect to your stock.' : 'Connected to your stock sheet.';
     if (m === 'DEMO') $('siConn').open = true;
     setStatus();
     var sel = $('siName');
@@ -1026,6 +1026,34 @@
   $('siGo').onclick = doSignIn;
   $('siPin').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSignIn(); });
   $('siUrlSave').onclick = function () { if (saveUrl($('siUrl').value)) showSignIn(mode() === 'DEMO' ? 'Demo mode. Sign in.' : 'Connected. Sign in with your name and PIN.'); };
+
+  /* Workshop code: connect.json (next to the app) holds the /exec URL locked with PBKDF2 + AES-GCM.
+     Made by tools/make_connect_code.js.  The code is typed once per device instead of the long URL. */
+  function b64bytes(s) { var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  function unlockUrl(code) {
+    var norm = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (norm.length < 6) return Promise.reject(new Error('Type the full workshop code'));
+    if (!(window.crypto && crypto.subtle)) return Promise.reject(new Error('This browser cannot unlock the code. Paste the link instead.'));
+    return fetch('connect.json', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('No workshop code is set up for this app. Paste the link instead.');
+      return r.json();
+    }).then(function (c) {
+      return crypto.subtle.importKey('raw', new TextEncoder().encode(norm), 'PBKDF2', false, ['deriveKey']).then(function (base) {
+        return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64bytes(c.salt), iterations: c.iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+      }).then(function (key) {
+        return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64bytes(c.iv) }, key, b64bytes(c.ct));
+      }).then(function (buf) { return new TextDecoder().decode(buf); }, function () { throw new Error('Wrong workshop code'); });
+    });
+  }
+  function connectWithCode() {
+    var btn = $('siCodeGo'); btn.disabled = true; btn.textContent = 'Checking…';
+    unlockUrl($('siCode').value).then(function (url) {
+      if (saveUrl(url)) { $('siCode').value = ''; showSignIn('Connected. Sign in with your name and PIN.'); }
+    }).catch(function (e) { beep(false); toast(e.message, 'bad'); })
+      .then(function () { btn.disabled = false; btn.textContent = 'Connect'; });
+  }
+  $('siCodeGo').onclick = connectWithCode;
+  $('siCode').addEventListener('keydown', function (e) { if (e.key === 'Enter') connectWithCode(); });
   $('meBtn').onclick = function () { if (!signedIn()) showSignIn(); else showTab('setup'); };
 
   /* ---------------- start ---------------- */

@@ -240,7 +240,11 @@
     <details id="siConn">
       <summary>Connection</summary>
       <p class="hint" id="siConnHint"></p>
-      <label class="lbl">Apps Script web app URL (ends in /exec)</label>
+      <div id="siCodeBox">
+        <label class="lbl" for="siCode">Workshop code (ask your supervisor)</label>
+        <div class="row2"><input id="siCode" placeholder="ABCD-2345" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="20"><button id="siCodeGo" type="button">Connect</button></div>
+      </div>
+      <label class="lbl">Or paste the Apps Script link (ends in /exec)</label>
       <input id="siUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
       <button id="siUrlSave" class="big">Save and connect</button>
     </details>
