@@ -179,7 +179,7 @@ td.mono { white-space: nowrap; }
 .tabs b { font-weight: inherit; }
 
 /* mechanics: only Scan and Settings; on a phone the two tabs sit at the bottom like an app */
-body:not(.sup) #tabs button:not([data-tab="take"]):not([data-tab="setup"]) { display: none; }
+body:not(.sup) #tabs button:not([data-tab="take"]):not([data-tab="restock"]):not([data-tab="setup"]) { display: none; }
 @media (max-width: 700px) {
   body:not(.sup) .tabs { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 30; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: 0 -2px 10px rgba(0,0,0,.06); }
   body:not(.sup) .tabs button { padding: 10px 4px 9px; font-size: 13px; border-bottom: 0; border-top: 3px solid transparent; }

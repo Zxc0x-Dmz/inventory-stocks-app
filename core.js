@@ -17,8 +17,9 @@ var TABLES = {
  *  'Admin' + the admin PIN from setup() always works, so the first supervisor can be created. */
 var ADMIN_NAME = 'Admin';
 var ROLES = { mechanic: 'Mechanic', supervisor: 'Supervisor' };
-/** Only supervisors may run these.  Mechanics can take, return, damaged, receive, restock, seal and count. */
-var SUPERVISOR_OPS = { resolveCount: 1, saveLocation: 1, saveLocations: 1, savePart: 1, addStaff: 1, setStaff: 1 };
+/** Only supervisors may run these.  Mechanics can take, return, damaged, receive, restock, seal, count and add new parts
+ *  (changing an existing part is checked in savePart). */
+var SUPERVISOR_OPS = { resolveCount: 1, saveLocation: 1, saveLocations: 1, addStaff: 1, setStaff: 1 };
 /** These never need a sign-in (the sign-in screen needs the list of names). */
 var PUBLIC_OPS = { staffNames: 1 };
 
@@ -224,13 +225,14 @@ Core.prototype.saveLocations = function (p) {
 };
 
 /** Add a part, or change one.  p = {sku, name, abc, ns_sku, notes, price_eur, weight_g, photo_id}; only the fields given are changed. */
-Core.prototype.savePart = function (p) {
+Core.prototype.savePart = function (p, who) {
   if (!/^(OK4|NB3|NB2|UNI)-(ELC|WHL|BDY|DRV|FST)-[A-Z0-9]+$/.test(p.sku || '')) fail_('SKU must look like OK4-ELC-CTRL');
   if (p.abc !== undefined && !/^[ABC]$/.test(p.abc)) fail_('ABC class must be A, B or C');
   ['price_eur', 'weight_g'].forEach(function (k) {
     if (p[k] !== undefined && p[k] !== '' && !(Number(p[k]) >= 0)) fail_(k === 'price_eur' ? 'Price must be a number' : 'Weight must be a number of grams');
   });
   var ex = this.findPart_(p.sku);
+  if (ex && who && who.role !== 'supervisor') fail_(p.sku + ' already exists. Only a supervisor can change an existing part.', { code: 'ROLE' });
   if (ex) {
     var patch = {};
     ['name', 'abc', 'ns_sku', 'notes', 'price_eur', 'weight_g', 'photo_id'].forEach(function (k) { if (p[k] !== undefined) patch[k] = p[k]; });
@@ -326,7 +328,7 @@ Core.prototype.handle = function (op, p, who) {
     case 'resolveCount': return this.resolveCount(p);
     case 'saveLocation': return this.saveLocation(p);
     case 'saveLocations': return this.saveLocations(p);
-    case 'savePart': return this.savePart(p);
+    case 'savePart': return this.savePart(p, who);
     case 'history': return this.history(p);
     case 'addStaff': return this.addStaff(p);
     case 'setStaff': return this.setStaff(p, who);

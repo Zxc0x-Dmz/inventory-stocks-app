@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '1.3 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '1.4 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -292,8 +292,8 @@
 
   /* ---------------- tabs ---------------- */
   var current = 'take';
-  /** Mechanics only get Scan (the take screen) and Settings. */
-  function tabAllowed(t) { return isSup() || t === 'take' || t === 'setup'; }
+  /** Mechanics get Scan (the take screen), Restock and Settings. */
+  function tabAllowed(t) { return isSup() || t === 'take' || t === 'restock' || t === 'setup'; }
   function showTab(t) {
     if (!tabAllowed(t)) t = 'take';
     current = t;
