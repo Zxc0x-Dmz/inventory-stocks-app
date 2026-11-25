@@ -719,7 +719,7 @@
     pack.added.forEach(function (a) { if (!inside.some(function (x) { return x.sku === a.sku; })) inside.push({ sku: a.sku, qty: a.qty }); });
     modal('<h3 class="formtitle">📦 Packing <span class="mono">' + esc(pack.loc) + '</span></h3><p class="hint">' + KIND[kindOf(pack.loc)].name + ' · ' + (inside.length ? inside.length + ' part' + (inside.length > 1 ? 's' : '') + ' in it' : 'empty so far') + '</p>' +
       (inside.length ? '<div class="packlist">' + inside.map(function (x) { var pt = P[x.sku] || { name: x.sku }; return '<div><b>' + x.qty + '</b> × ' + esc(pt.name) + '</div>'; }).join('') + '</div>' : '') +
-      '<label class="lbl" for="packQ">Add a part: type its name or SKU</label><input id="packQ" type="search" autocomplete="off" placeholder="e.g. brake lever, 4001660" value="' + esc(q || '') + '">' +
+      '<label class="lbl" for="packQ">Add a part: type its name or SKU</label><input id="packQ" type="search" autocomplete="off" placeholder="e.g. brake lever" value="' + esc(q || '') + '">' +
       '<div id="packHits" class="ordlist"></div>' +
       '<div class="btns"><button type="button" class="big" data-x="stay" id="packOther">Other box</button><button type="button" class="big ok" data-x="stay" id="packDone">Done</button></div>');
     var model = (/^(A200|C1|OK|UNI)-/.exec(pack.loc) || [])[1], mkey = { A200: 'NB2', C1: 'NB3', OK: 'OK4', UNI: 'UNI' }[model];
