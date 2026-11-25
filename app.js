@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.1 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.2 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -549,7 +549,7 @@
     }
     if (!opts.blind && loc && loc.type === 'BIN') facts += '<div class="fact"><small>In white boxes</small><b>' + toteQty + '</b></div>';
     return '<div class="card m-' + esc(part.model) + '"><div class="band"><span>' + esc(m.name) + '</span><span>' + esc(SYSTEMS[part.system] || part.system) + ' · ' + esc(part.abc) + '</span></div>' +
-      '<div class="body">' + photoBox(part) + '<div class="name">' + esc(part.name) + '</div><div class="sku">' + esc(part.sku) + (part.ns_sku ? ' · NS ' + esc(part.ns_sku) : '') + '</div>' +
+      '<div class="body">' + photoBox(part) + '<div class="name">' + esc(part.name) + '</div><div class="sku">SKU ' + esc(codeOf(part)) + '</div>' +
       '<div class="facts">' + facts + '</div>' + (opts.extra || '') + '</div></div>';
   }
 
@@ -611,7 +611,7 @@
       return '<button type="button" class="pc" data-sku="' + esc(p.sku) + '">' +
         (p.photo_id ? '<span class="pc-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></span>' : '<span class="pc-ph none"><i>No photo yet</i></span>') +
         '<span class="pc-b"><span class="pc-code">' + esc(codeOf(p)) + '</span><span class="pc-n">' + esc(p.name) + '</span>' +
-        '<span class="pc-m"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · <span class="mono">' + esc(p.sku) + '</span></span>' +
+        '<span class="pc-m"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + '</span>' +
         '<span class="pc-s' + (st.total > 0 ? (st.low ? ' low' : ' ok') : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in ' + esc(st.locs.length === 1 ? st.locs[0].loc : st.locs.length + ' boxes') : 'Not in stock') + '</span></span></button>';
     }).join('') : '<p class="hint">No parts found. Check the SKU, or try part of the name.</p>';
     $('gridMore').classList.toggle('hidden', list.length <= gridLimit);
@@ -681,7 +681,7 @@
     h += '<div class="pd"><div class="pd-top">' +
       (p.photo_id ? '<div class="pd-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></div>' : '<div class="pd-ph none"><i>No photo yet</i></div>') +
       '<div class="pd-info"><span class="mtag m-' + esc(p.model) + '"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + esc((MODELS[p.model] || {}).name || '') + '</span>' +
-      '<h3>' + esc(p.name) + '</h3><div class="mono">' + esc(p.sku) + '</div>' + (p.ns_sku ? '<div class="mono mute">NS ' + esc(p.ns_sku) + '</div>' : '') +
+      '<h3>' + esc(p.name) + '</h3><div class="pd-sku">SKU <b class="mono">' + esc(codeOf(p)) + '</b></div>' +
       '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : 'Not in stock yet') + '</div></div></div>';
     if (!mode) {
       h += (st.locs.length ? '<label class="lbl">Where it is</label>' + boxChips(st) : '') +
@@ -862,7 +862,7 @@
     $('stockTable').innerHTML = '<thead><tr><th></th><th>SKU</th><th>Part</th><th>Bin</th><th class="n">In bin</th><th class="n">Min</th><th class="n">Totes</th><th class="n">Total</th><th class="n">Value €</th></tr></thead><tbody>' +
       show.map(function (r) {
         return '<tr class="' + (r.low ? 'low' : '') + '" data-sku="' + esc(r.p.sku) + '"><td><span class="swatch sw-' + esc(r.p.model) + '" style="height:18px;display:block"></span></td>' +
-          '<td class="mono">' + esc(r.p.sku) + '</td><td>' + esc(r.p.name) + (r.low ? ' <span class="pill err">LOW</span>' : '') + '</td>' +
+          '<td class="mono">' + esc(codeOf(r.p)) + '</td><td>' + esc(r.p.name) + (r.low ? ' <span class="pill err">LOW</span>' : '') + '</td>' +
           '<td class="mono">' + esc(r.bins.map(function (l) { return l.loc; }).join(', ') || '—') + '</td>' +
           '<td class="n bin">' + r.binQty + '</td><td class="n">' + r.min + '</td><td class="n">' + r.toteQty + '</td><td class="n">' + (r.binQty + r.toteQty) + '</td><td class="n">' + (r.value == null ? '<span class="hint">—</span>' : r.value.toFixed(2)) + '</td></tr>';
       }).join('') + '</tbody>' + (rows.length > show.length ? '<tfoot><tr><td colspan="9" class="hint">Showing 400 of ' + rows.length + '. Search to narrow down.</td></tr></tfoot>' : '');
@@ -931,7 +931,7 @@
     s.list.sort(function (a, b) { return (a.last_count === today()) - (b.last_count === today()) || a.loc.localeCompare(b.loc); });
     $('schedList').innerHTML = s.list.map(function (l) {
       var p = P[l.sku], did = l.last_count === today();
-      return '<div class="item"><span class="swatch sw-' + esc(p.model) + '"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">' + esc(p.sku) + ' · last counted ' + esc(l.last_count || 'never') + '</div></div>' +
+      return '<div class="item"><span class="swatch sw-' + esc(p.model) + '"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">SKU ' + esc(codeOf(p)) + ' · last counted ' + esc(l.last_count || 'never') + '</div></div>' +
         (did ? '<span class="pill done">Counted ✓</span>' : '<button data-count="' + esc(l.loc) + '">Count</button>') + '</div>';
     }).join('');
     qsa('[data-count]').forEach(function (b) { b.onclick = function () { countLoc(b.dataset.count); }; });
@@ -1038,7 +1038,7 @@
     var n = Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length;
     $('labelList').innerHTML = pool.length ? pool.map(function (l) {
       var p = P[l.sku];
-      return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(l.loc) + '"' + (lbSel[l.loc] ? ' checked' : '') + '><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">' + esc(p.sku) + (l.type === 'TOTE' ? ' · qty ' + num(l.qty) + ' · sealed ' + esc(l.sealed_date || '-') : '') + '</div></div></label>';
+      return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(l.loc) + '"' + (lbSel[l.loc] ? ' checked' : '') + '><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">SKU ' + esc(codeOf(p)) + (l.type === 'TOTE' ? ' · qty ' + num(l.qty) + ' · sealed ' + esc(l.sealed_date || '-') : '') + '</div></div></label>';
     }).join('') : '<p class="hint">No ' + (lbMode === 'BIN' ? 'bins' : 'totes') + ' set up yet. Add them in Setup.</p>';
     qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
     $('labelPrint').textContent = 'Print selected labels (' + n + ')';
@@ -1062,7 +1062,7 @@
           chosen.slice(i, i + per).forEach(function (l) {
             var p = P[l.sku], m = MODELS[p.model];
             html += '<div class="lab c-' + p.model + '"><div class="lh"><span>' + esc(m.name) + '</span><span>' + esc(p.system) + ' · ' + esc(p.abc) + '</span></div>' +
-              '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div class="lsku">' + esc(p.sku) + '</div><div class="lname">' + esc(p.name) + '</div><div class="lloc">' + esc(l.loc) + '</div></div></div></div>';
+              '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div class="lsku">' + esc(codeOf(p)) + '</div><div class="lname">' + esc(p.name) + '</div><div class="lloc">' + esc(l.loc) + '</div></div></div></div>';
           });
           html += '</div>';
         }
@@ -1072,7 +1072,7 @@
           chosen.slice(j, j + 2).forEach(function (l) {
             var p = P[l.sku], m = MODELS[p.model];
             html += '<div class="lab tote c-' + p.model + '"><div class="lh"><span>SEALED BULK · ' + esc(m.name) + '</span><span>' + esc(l.loc) + '</span></div>' +
-              '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div><div class="lname">' + esc(p.name) + '</div><div class="lsku">' + esc(p.sku) + '</div></div>' +
+              '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div><div class="lname">' + esc(p.name) + '</div><div class="lsku">' + esc(codeOf(p)) + '</div></div>' +
               '<div><div class="tmeta">EXACT QUANTITY</div><div class="tq">' + num(l.qty) + '</div><div class="tmeta">Sealed ' + esc(l.sealed_date || today()) + (l.notes ? ' · ' + esc(l.notes) : '') + '</div></div>' +
               '<div class="sealbox">Seal broken on ____/____/______ by __________</div></div></div></div>';
           });
