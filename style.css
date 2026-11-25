@@ -398,3 +398,23 @@ body.sup .sup-hide { display: none !important; }
 .pvwrap.one { background: #f6f7f9; display: block; overflow: hidden; max-height: none; }
 .pvone { transform-origin: top left; display: grid; background: #fff; }
 .pvone .lab { margin: 0; }
+
+/* Stock report */
+.repbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 10px 12px; margin: 8px 0 12px; }
+.repbar span { color: var(--mute); font-size: 13px; }
+.repbar .btns { width: 100%; margin: 4px 0 0; }
+.rep { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 10mm 8mm; font-size: 8.5pt; }
+.rep h1 { font-size: 15pt; margin: 0 0 2mm; }
+.rep p { margin: 0 0 2mm; }
+.rep .rsum { font-size: 10pt; margin-bottom: 4mm; }
+.rep table { width: 100%; border-collapse: collapse; }
+.rep th, .rep td { border-bottom: .2mm solid #bbb; padding: 1mm 1.2mm; text-align: left; vertical-align: top; }
+.rep th { background: #eee; font-size: 8pt; }
+.rep .n { text-align: right; white-space: nowrap; }
+.rep .mono { font-family: Consolas, monospace; white-space: nowrap; }
+.rep .w { font-size: 7.5pt; color: #333; }
+.rep tfoot td { font-weight: 700; border-top: .5mm solid #000; border-bottom: none; }
+.rep thead { display: table-header-group; }
+.rep tr { page-break-inside: avoid; }
+@page report { size: A4 landscape; margin: 8mm; }
+.rep { page: report; }

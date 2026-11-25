@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.14 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.15 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1152,6 +1152,53 @@
       }).join('') + '</tbody>' + (rows.length > show.length ? '<tfoot><tr><td colspan="9" class="hint">Showing 400 of ' + rows.length + '. Search to narrow down.</td></tr></tfoot>' : '');
     qsa('#stockTable tbody tr').forEach(function (tr) { tr.onclick = function () { partDetail(tr.dataset.sku); }; });
   }
+  /* ---------------- STOCK REPORT (year-end) ----------------
+   * Every part that has stock (all bins and boxes together, above 0), all models, whatever the filters on screen.
+   * CSV for Excel, PDF through the print window ("Save as PDF"). */
+  function reportRows() {
+    var order = { OK4: 0, NB3: 1, NB2: 2, UNI: 3 };
+    return partRows().filter(function (r) { return r.binQty + r.toteQty > 0; }).map(function (r) {
+      var qty = r.binQty + r.toteQty, pr = price(r.p);
+      return { p: r.p, qty: qty, price: pr, eur: pr == null ? null : pr * qty, aed: pr == null ? null : pr * qty * AED_PER_EUR,
+        where: r.bins.concat(r.totes).filter(function (l) { return num(l.qty) > 0; }).map(function (l) { return l.loc + ' (' + num(l.qty) + ')'; }).join(', ') };
+    }).sort(function (a, b) { return (order[a.p.model] - order[b.p.model]) || a.p.name.localeCompare(b.p.name); });
+  }
+  function reportTotals(rows) {
+    return { parts: rows.length, units: rows.reduce(function (a, r) { return a + r.qty; }, 0),
+      eur: rows.reduce(function (a, r) { return a + (r.eur || 0); }, 0), noPrice: rows.filter(function (r) { return r.price == null; }).length };
+  }
+  function modelLabel(p) { return (MODEL_TAG[p.model] || p.model) + ' · ' + ((MODELS[p.model] || {}).name || ''); }
+  function f2(v) { return v == null ? '' : (Math.round(v * 100) / 100).toFixed(2); }
+  $('repCsv').onclick = function () {
+    var rows = reportRows(); if (!rows.length) return toast('No parts in stock to export', 'bad');
+    var q = function (v) { v = v == null ? '' : String(v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    var lines = [['NetSuite SKU', 'Name', 'Model', 'Quantity', 'Unit price (EUR)', 'Value (EUR)', 'Value (AED)', 'HS code', 'Where (box: qty)', 'Internal code'].join(',')];
+    rows.forEach(function (r) { lines.push([codeOf(r.p), r.p.name, modelLabel(r.p), r.qty, f2(r.price), f2(r.eur), f2(r.aed), r.p.hs_code || '', r.where, r.p.sku].map(q).join(',')); });
+    var t = reportTotals(rows);
+    lines.push(''); lines.push(['TOTAL', t.parts + ' parts', '', t.units, '', f2(t.eur), f2(t.eur * AED_PER_EUR), '', t.noPrice ? t.noPrice + ' parts have no price (not in the total)' : '', ''].map(q).join(','));
+    lines.push(['Report date', today(), 'Made by', cfg.user || ''].map(q).join(','));
+    var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Stock report ' + today() + '.csv';
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    toast('Stock report saved: ' + rows.length + ' parts in stock', 'good');
+  };
+  $('repPdf').onclick = function () {
+    var rows = reportRows(); if (!rows.length) return toast('No parts in stock to export', 'bad');
+    var t = reportTotals(rows);
+    $('printArea').innerHTML = '<div class="rep"><h1>Stock report · ' + esc(today()) + '</h1>' +
+      '<p>Parts in stock (quantity above 0), all models. Made by ' + esc(cfg.user || '') + '.</p>' +
+      '<p class="rsum"><b>' + t.parts + '</b> parts · <b>' + t.units.toLocaleString() + '</b> units · value <b>' + money(t.eur) + '</b> / <b>' + money(t.eur * AED_PER_EUR, 'AED') + '</b>' +
+      (t.noPrice ? ' · ' + t.noPrice + ' parts have no price (not in the value)' : '') + '</p>' +
+      '<table><thead><tr><th>NetSuite SKU</th><th>Name</th><th>Model</th><th class="n">Qty</th><th class="n">Unit €</th><th class="n">Value €</th><th class="n">Value AED</th><th>HS code</th><th>Where</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr><td class="mono">' + esc(codeOf(r.p)) + '</td><td>' + esc(r.p.name) + '</td><td>' + esc(MODEL_TAG[r.p.model] || r.p.model) + '</td><td class="n">' + r.qty + '</td>' +
+          '<td class="n">' + f2(r.price) + '</td><td class="n">' + f2(r.eur) + '</td><td class="n">' + f2(r.aed) + '</td><td class="mono">' + esc(r.p.hs_code || '') + '</td><td class="w">' + esc(r.where) + '</td></tr>';
+      }).join('') +
+      '</tbody><tfoot><tr><td colspan="3">TOTAL · ' + t.parts + ' parts</td><td class="n">' + t.units + '</td><td></td><td class="n">' + f2(t.eur) + '</td><td class="n">' + f2(t.eur * AED_PER_EUR) + '</td><td colspan="2"></td></tr></tfoot></table></div>';
+    toast('In the print window choose "Save as PDF"', 'good');
+    setTimeout(function () { window.print(); }, 300);
+  };
+
   ['stockSearch'].forEach(function (id) { $(id).addEventListener('input', renderStock); });
   ['lowOnly', 'stockedOnly'].forEach(function (id) { $(id).addEventListener('change', renderStock); });
 

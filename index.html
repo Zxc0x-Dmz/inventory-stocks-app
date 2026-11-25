@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Stocks">
-<link rel="stylesheet" href="style.css?v=2.14">
+<link rel="stylesheet" href="style.css?v=2.15">
 </head>
 <body>
 <header class="top">
@@ -83,6 +83,8 @@
       <label class="tog"><input type="checkbox" id="stockedOnly" checked> Has a bin</label>
     </div>
     <div id="stockSummary" class="summary"></div>
+    <div class="repbar"><b>Stock report</b><span>Parts with stock only (quantity above 0), all models.</span>
+      <div class="btns"><button type="button" class="big" id="repCsv">⬇ Export CSV</button><button type="button" class="big go" id="repPdf">⬇ Export PDF</button></div></div>
     <div class="tablewrap"><table class="grid" id="stockTable"></table></div>
   </section>
 
@@ -258,8 +260,8 @@
 <div id="toast" class="toast hidden"></div>
 <div id="printArea"></div>
 
-<script src="core.js?v=2.14"></script>
-<script src="demo-seed.js?v=2.14"></script>
-<script src="app.js?v=2.14"></script>
+<script src="core.js?v=2.15"></script>
+<script src="demo-seed.js?v=2.15"></script>
+<script src="app.js?v=2.15"></script>
 </body>
 </html>
