@@ -418,3 +418,10 @@ body.sup .sup-hide { display: none !important; }
 .rep tr { page-break-inside: avoid; }
 @page report { size: A4 landscape; margin: 8mm; }
 .rep { page: report; }
+
+.pvbtn { flex: none; border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 6px 10px; font-weight: 700; font-size: 13px; margin-right: 6px; }
+#labelList .item { flex-wrap: wrap; row-gap: 6px; }
+#labelList .item .grow { flex: 1 1 60%; min-width: 160px; }
+@media (max-width: 560px) {
+  #labelList .item .pvbtn { margin-left: 74px; }
+}

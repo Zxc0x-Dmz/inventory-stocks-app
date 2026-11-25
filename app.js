@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.15 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.16 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1393,11 +1393,13 @@
       return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="lqrp" data-qr="' + esc(b.loc) + '" title="Tap to see the QR code big"></span><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · ' +
         (mixed ? 'Mixed box · ' + b.rows.length + ' parts' : esc(p.name)) + '</div><div class="t2">' +
         (mixed ? esc(b.rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) : 'SKU ' + esc(codeOf(p)) + (b.type === 'TOTE' ? ' · qty ' + num(b.rows[0].qty) : '')) + '</div></div>' +
+        '<button type="button" class="pvbtn" data-pv="' + esc(b.loc) + '">👁 Preview</button>' +
         (b.rows.some(function (r) { return !r.label_printed; }) ? '<span class="pill err">Not printed yet</span>' : '<span class="pill done">Printed ' + esc(b.rows[0].label_printed) + '</span>') + '</label>';
     }).join('') : '<p class="hint">' + ($('labelNew').checked ? 'All ' + (lbMode === 'BIN' ? 'blue bin' : 'white box') + ' labels are printed. Untick "Only labels not printed yet" to print one again.' : 'No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.') + '</p>';
     qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
     $('labelPrint').textContent = 'Print selected labels (' + n + ')';
     fillQrs();
+    qsa('#labelList [data-pv]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewOne(b.dataset.pv); }; });
   }
   /** Draws the QR code of every box in the Labels list (the code is the box code, e.g. C1-T001). Tap one to see it big. */
   function fillQrs() {
@@ -1407,7 +1409,7 @@
         if (!window.qrcode) { if (tries++ < 20) setTimeout(go, 150); return; }
         qsa('#labelList [data-qr]').forEach(function (el) {
           if (!el.innerHTML) el.innerHTML = qrSvg(el.dataset.qr);
-          el.onclick = function (e) { e.preventDefault(); e.stopPropagation(); bigQr(el.dataset.qr); };
+          el.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewOne(el.dataset.qr); };
         });
       };
       go();
@@ -1506,7 +1508,13 @@
       var L4 = LAYOUTS[$('labelLayout').value], w = kind === 'BIN' ? L4[2] : 210, h = kind === 'BIN' ? L4[3] : 148.5;
       modal('<h3 class="formtitle mono">' + esc(b.loc) + ' · sticker</h3><div class="pvwrap one"><div class="pvone" style="width:' + w + 'mm;height:' + h + 'mm">' + (kind === 'BIN' ? binLabel(b) : toteLabel(b)) + '</div></div>' +
         '<p class="hint">' + (kind === 'BIN' ? 'Real size ' + w + ' × ' + h + ' mm (' + esc($('labelLayout').selectedOptions[0].textContent) + '), shown bigger.' : 'White box label: half an A4 sheet.') + '</p>' +
-        '<div class="btns"><button type="button" class="big" data-x="close">Close</button></div>');
+        '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big go" data-x="stay" id="pvOnePrint">Print this one</button></div>');
+      $('pvOnePrint').onclick = function () {
+        closeModal(); lbMode = kind; lbSel = {}; lbSel[b.loc] = true;
+        qsa('#labelSeg button').forEach(function (x) { x.classList.toggle('on', x.dataset.lb === lbMode); });
+        $('labelLayout').style.display = lbMode === 'BIN' ? '' : 'none';
+        $('labelNew').checked = false; renderLabels(); $('labelPrint').onclick();
+      };
       var wrap = document.querySelector('#modalBody .pvwrap'), one = document.querySelector('#modalBody .pvone');
       setTimeout(function () { var s = Math.min(3, (wrap.clientWidth - 6) / one.offsetWidth); one.style.transform = 'scale(' + s + ')'; wrap.style.height = Math.ceil(one.offsetHeight * s + 6) + 'px'; }, 0);
     });
