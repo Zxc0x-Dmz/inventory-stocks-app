@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.18 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.19 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1438,7 +1438,8 @@
   /** One part label: name, "SKU 4000xxx", and the barcode of the SKU. */
   function partLabel(p) {
     var code = codeOf(p);
-    return '<div class="lab plab c-' + p.model + '"><div class="pn">' + esc(p.name) + '</div><div class="ps">SKU ' + esc(code) + '</div><div class="pb">' + code128Svg(code) + '</div></div>';
+    var tag = { OK4: '400C', NB3: 'C1', NB2: 'A200', UNI: 'Universal' }[p.model] || p.model;
+    return '<div class="lab plab c-' + p.model + '"><div class="pn">' + esc(p.name) + '</div><div class="ps">SKU ' + esc(code) + '<span class="pm pm-' + p.model + '">' + esc(tag) + '</span></div><div class="pb">' + code128Svg(code) + '</div></div>';
   }
   function previewRack(loc) {
     var r = RACKS.filter(function (x) { return x.loc === loc; })[0]; if (!r) return;

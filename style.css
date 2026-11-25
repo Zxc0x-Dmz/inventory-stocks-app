@@ -457,3 +457,8 @@ body.sup .sup-hide { display: none !important; }
 .pbarp { flex: none; width: 70px; height: 34px; padding: 3px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 .pbarp svg { width: 100%; height: 100%; display: block; }
 .pvone .lab.racksign { margin: 6mm; height: calc(100% - 12mm); }
+.lab.plab .ps { display: flex; align-items: center; justify-content: space-between; gap: 2mm; }
+.lab.plab .pm { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; font-weight: 800; padding: .3mm 1.6mm; border-radius: 1mm; border: .3mm solid #000; white-space: nowrap; }
+.lab.plab .pm-OK4 { background: #1565c0; border-color: #1565c0; color: #fff; }
+.lab.plab .pm-NB3 { background: #f57c00; border-color: #f57c00; color: #fff; }
+.lab.plab .pm-NB2 { background: #1f9d55; border-color: #1f9d55; color: #fff; }
