@@ -1146,6 +1146,7 @@
     toast('Connecting…'); refresh().then(function () { if (online) toast('Connected ✓', 'good'); });
   };
   $('signOut').onclick = function () {
+    if (window.PREVIEW_ONLY) save('inv.previewOut', true);
     var w = queue.filter(function (q) { return q.status === 'wait' && q.by === cfg.user; }).length;
     cfg.user = ''; cfg.pin = ''; cfg.role = ''; save('inv.cfg', cfg);
     showSignIn(w ? 'Signed out. ' + w + ' of your actions are still waiting to send and will be sent under your name.' : 'Signed out.');
@@ -1388,5 +1389,7 @@
     var want = decodeURIComponent(hc[1]).trim();
     if (want !== (cfg.url || '') && saveUrl(want)) { showSignIn('Connected. Sign in with your name and PIN.'); flush(); return; }
   }
+  // the preview page opens straight inside, as the demo supervisor (Sign out shows the sign-in screen)
+  if (window.PREVIEW_ONLY && !signedIn() && !load('inv.previewOut', false)) { cfg.user = 'Supervisor'; cfg.pin = '9999'; cfg.role = 'supervisor'; save('inv.cfg', cfg); }
   if (signedIn()) refresh().then(flush); else { showSignIn(); flush(); }
 })();
