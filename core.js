@@ -69,9 +69,9 @@ Core.prototype.snapshot = function () {
 };
 
 Core.prototype.findLoc_ = function (loc) {
-  loc = String(loc || '').trim().toUpperCase();
+  loc = normLoc_(loc);
   var rows = this.s.rows('Locations');
-  for (var i = 0; i < rows.length; i++) if (String(rows[i].loc).toUpperCase() === loc) return rows[i];
+  for (var i = 0; i < rows.length; i++) if (normLoc_(rows[i].loc) === loc) return rows[i];
   return null;
 };
 
@@ -194,7 +194,7 @@ Core.prototype.resolveCount = function (p) {
  * qty is only used when the location is new (opening stock) and is logged as ADJUST.
  */
 Core.prototype.saveLocation = function (p) {
-  var id = String(p.loc || '').trim().toUpperCase();
+  var id = normLoc_(p.loc);
   if (!/^(R\d+-S\d+-B\d+(-[A-Z])?|T-?\d+)$/.test(id)) fail_('Location must look like R1-S3-B04, R1-S3-B04-A or T-0001');
   if (p.sku && !this.findPart_(p.sku)) fail_('Unknown SKU ' + p.sku);
   var type = /^T/.test(id) ? 'TOTE' : 'BIN';
@@ -250,7 +250,16 @@ Core.prototype.savePart = function (p, who) {
 };
 
 var LOC_RE = /^(R\d+-S\d+-B\d+(-[A-Z])?|T-?\d+)$/;
-function normLoc_(v) { return String(v || '').trim().toUpperCase().replace(/\s+/g, ''); }
+function pad2_(n) { n = String(Number(n)); return n.length < 2 ? '0' + n : n; }
+/** One spelling per box: R1-S2-B5 -> R01-S2-B05, t1 -> T-0001.  Racks are R01 ... R15. */
+function normLoc_(v) {
+  var s = String(v || '').trim().toUpperCase().replace(/\s+/g, '');
+  var m = /^R0*(\d+)-S0*(\d+)-B0*(\d+)(-[A-Z])?$/.exec(s);
+  if (m) return 'R' + pad2_(m[1]) + '-S' + Number(m[2]) + '-B' + pad2_(m[3]) + (m[4] || '');
+  var t = /^T-?0*(\d+)$/.exec(s);
+  if (t) return 'T-' + ('000' + Number(t[1])).slice(-4);
+  return s;
+}
 
 /** Makes sure box `id` exists and holds `sku`: creates it, or fills an empty box.  Returns the box row. */
 Core.prototype.ensureBox_ = function (id, sku, min) {

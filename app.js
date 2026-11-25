@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.4 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.5 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -98,12 +98,11 @@
     (window.DEMO_PARTS || []).forEach(function (p, i) {
       t.Parts.push({ sku: p.sku, name: p.name, model: p.model, system: p.system, abc: p.abc, ns_sku: p.ns_sku, tier_code: p.tier_code, fits: p.fits, unit: 'pcs', notes: p.notes || '',
         price_eur: p.price_eur == null ? '' : String(p.price_eur), weight_g: p.weight_g == null ? '' : String(p.weight_g), photo_id: p.photo_id || '', hs_code: p.hs_code || '' });
-      var j = perRack[p.model] = (perRack[p.model] || 0) + 1;
-      var loc = 'R' + rack[p.model] + '-S' + (1 + Math.floor((j - 1) / 6)) + '-B' + ('0' + (((j - 1) % 6) + 1)).slice(-2);
+      var loc = 'R' + ('0' + (1 + Math.floor(i / 6) % 15)).slice(-2) + '-S' + (1 + (i % 6 < 3 ? 0 : 1)) + '-B' + ('0' + ((i % 3) + 1)).slice(-2);
       var qty = p.abc === 'C' ? 40 + (i * 37) % 160 : (i * 7) % 18;
       t.Locations.push({ loc: loc, type: 'BIN', sku: p.sku, qty: String(qty), min: String(p.abc === 'C' ? 30 : p.abc === 'A' ? 2 : 4), sealed_date: '', last_count: stamp, notes: '' });
       if (p.abc === 'A') {
-        t.Locations.push({ loc: 'T-' + ('000' + tote++).slice(-4), type: 'TOTE', sku: p.sku, qty: '20', min: '0', sealed_date: stamp, last_count: stamp, notes: 'Above rack R' + rack[p.model] });
+        t.Locations.push({ loc: 'T-' + ('000' + tote++).slice(-4), type: 'TOTE', sku: p.sku, qty: '20', min: '0', sealed_date: stamp, last_count: stamp, notes: 'Top of ' + loc.slice(0, 3) });
       }
     });
     return { t: t, v: 1, sig: demoSig() };
@@ -168,6 +167,13 @@
       });
     }
     if (op === 'photo') return steps.then(function () { return { ok: true, id: p.id, data: (window.DEMO_PHOTOS && window.DEMO_PHOTOS[p.id]) || null }; });
+    if (op === 'setPhoto') return steps.then(function () {
+      var part = core.findPart_(String(p.sku || '').toUpperCase()); if (!part) throw bizError('Unknown part ' + p.sku);
+      var id = String(part.photo_id || part.ns_sku || part.sku).replace(/_v[0-9a-z]+$/, '') + '_v' + Date.now().toString(36);
+      window.DEMO_PHOTOS = window.DEMO_PHOTOS || {}; window.DEMO_PHOTOS[id] = p.data;
+      core.s.update('Parts', part, { photo_id: id }); core.s.bump();
+      return { ok: true, id: id };
+    });
     if (op === 'savePhotos') return steps.then(function () {
       if (!who || who.role !== 'supervisor') throw bizError('Only a supervisor can do this', null, 'ROLE');
       window.DEMO_PHOTOS = window.DEMO_PHOTOS || {};
@@ -221,7 +227,7 @@
   function index() {
     P = {}; L = {}; BY = {};
     snap.parts.forEach(function (p) { P[p.sku] = p; });
-    snap.locations.forEach(function (l) { L[String(l.loc).toUpperCase()] = l; (BY[l.sku] = BY[l.sku] || []).push(l); });
+    snap.locations.forEach(function (l) { L[String(l.loc).toUpperCase()] = l; L[normLoc_(l.loc)] = l; (BY[l.sku] = BY[l.sku] || []).push(l); });
     var dl = $('skuList');
     dl.innerHTML = snap.parts.map(function (p) { return '<option value="' + esc(p.sku) + '">' + esc(p.name) + '</option>'; }).join('');
   }
@@ -370,7 +376,7 @@
     var s = String(code || '').trim();
     if (!s) return null;
     var up = s.toUpperCase();
-    if (L[up]) return { loc: L[up] };
+    if (L[up] || L[normLoc_(s)]) return { loc: L[up] || L[normLoc_(s)] };
     if (P[up]) return { sku: up };
     var ns = snap.parts.filter(function (p) { return p.ns_sku && p.ns_sku === s; })[0];
     if (ns) return { sku: ns.sku };
@@ -682,7 +688,8 @@
     var p = P[sel.sku]; if (!p) return;
     var st = stockOf(p.sku), mode = sel.mode, h = '';
     h += '<div class="pd"><div class="pd-top">' +
-      (p.photo_id ? '<div class="pd-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></div>' : '<div class="pd-ph none"><i>No photo yet</i></div>') +
+      '<div class="pd-left">' + (p.photo_id ? '<div class="pd-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></div>' : '<div class="pd-ph none"><i>No photo yet</i></div>') +
+      '<button type="button" class="photobtn" id="photoChange">📷 ' + (p.photo_id ? 'Change photo' : 'Add photo') + '</button><input type="file" id="photoPick" accept="image/*" hidden></div>' +
       '<div class="pd-info"><span class="mtag m-' + esc(p.model) + '"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + esc((MODELS[p.model] || {}).name || '') + '</span>' +
       '<h3>' + esc(p.name) + '</h3><div class="pd-sku">SKU <b class="mono">' + esc(codeOf(p)) + '</b></div>' +
       '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : 'Not in stock yet') + '</div></div></div>' +
@@ -714,6 +721,8 @@
       b.onclick = function () { sel.box = b.dataset.box; qsa('#modalBody [data-box]').forEach(function (x) { x.classList.toggle('on', x === b); }); if ($('boxInput') && mode === 'ADD') $('boxInput').value = sel.box; };
     });
     qsa('#modalBody [data-cam]').forEach(function (b) { b.onclick = function () { openCam(b.dataset.cam); }; });
+    $('photoChange').onclick = function () { $('photoPick').click(); };
+    $('photoPick').onchange = function () { var f = this.files && this.files[0]; if (f) uploadPhoto(p.sku, f); };
     qsa('#modalBody [data-kind]').forEach(function (b) { b.onclick = function () { var q = $('fQty').value; sel.kind = b.dataset.kind; renderPart(); $('fQty').value = q; }; });
     if (!mode) {
       $('doOut').onclick = function () {
@@ -741,13 +750,36 @@
     var inp = b.parentNode.querySelector('input'); inp.value = Math.max(1, num(inp.value) + num(b.dataset.step));
   });
 
+  /** Take or pick a photo on the phone: made small, saved for this part, shown on every phone. */
+  function uploadPhoto(sku, file) {
+    if (!signedIn()) return showSignIn();
+    var btn = $('photoChange'); if (btn) { btn.disabled = true; btn.textContent = 'Saving photo…'; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      shrink(reader.result, 480, .75).then(function (d) { return d && d.length < 49000 ? d : shrink(reader.result, 320, .6); }).then(function (d) {
+        if (!d) throw new Error('That file is not a photo');
+        return api('setPhoto', { sku: sku, data: d }).then(function (r) {
+          photoMem[r.id] = d; cachePut(r.id, d);
+          if (P[sku]) P[sku].photo_id = r.id;
+          toast('Photo saved for every phone', 'good');
+          if (sel && sel.sku === sku) renderPart();
+          renderAll();
+        });
+      }).catch(function (e) {
+        toast(e.business ? e.message : 'Saving a photo needs a connection. Try again.', 'bad');
+        if (btn) { btn.disabled = false; btn.textContent = '📷 Change photo'; }
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
   function submitPart() {
     var p = P[sel.sku], mode = sel.mode, qty = Math.round(num($('fQty').value));
     if (!signedIn()) return showSignIn();
     if (qty < 1) return toast('Enter how many', 'bad');
     var box = sel.box, item;
     if (mode === 'ADD' || mode === 'MOVE') {
-      var to = String($('boxInput').value || '').trim().toUpperCase().replace(/\s+/g, '');
+      var to = normLoc_($('boxInput').value);
       if (!KIND[sel.kind].re.test(to)) { $('boxInput').focus(); return toast('A ' + KIND[sel.kind].name.toLowerCase() + ' label looks like ' + KIND[sel.kind].eg + (sel.kind === 'BIN' ? ' (or R1-S1-B02-A)' : ''), 'bad'); }
       var there = L[to];
       if (there && there.sku && there.sku !== p.sku && num(there.qty) !== 0) return toast(to + ' already holds ' + (P[there.sku] || { name: there.sku }).name + '. Use another box.', 'bad');
@@ -1031,8 +1063,10 @@
   });
   $('labelSearch').addEventListener('input', renderLabels);
   $('labelAll').onchange = function () { var on = this.checked; labelPool().forEach(function (l) { lbSel[l.loc] = on; }); renderLabels(); };
+  var RACKS = []; for (var rk = 1; rk <= 15; rk++) RACKS.push({ loc: 'R' + ('0' + rk).slice(-2), type: 'RACK' });
   function labelPool() {
     var q = $('labelSearch').value.trim().toLowerCase();
+    if (lbMode === 'RACK') return RACKS.filter(function (r) { return !q || r.loc.toLowerCase().indexOf(q) >= 0; });
     return snap.locations.filter(function (l) {
       if (l.type !== lbMode || !P[l.sku]) return false;
       if (!q) return true;
@@ -1043,10 +1077,19 @@
   function renderLabels() {
     var pool = labelPool();
     var n = Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length;
+    if (lbMode === 'RACK') {
+      $('labelList').innerHTML = pool.map(function (r) {
+        var n = snap.locations.filter(function (l) { return normLoc_(l.loc).indexOf(r.loc + '-') === 0; }).length;
+        return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + r.loc + '</span> · Rack ' + Number(r.loc.slice(1)) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div></label>';
+      }).join('');
+      qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected signs (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
+      $('labelPrint').textContent = 'Print selected signs (' + n + ')';
+      return;
+    }
     $('labelList').innerHTML = pool.length ? pool.map(function (l) {
       var p = P[l.sku];
       return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(l.loc) + '"' + (lbSel[l.loc] ? ' checked' : '') + '><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">SKU ' + esc(codeOf(p)) + (l.type === 'TOTE' ? ' · qty ' + num(l.qty) + ' · sealed ' + esc(l.sealed_date || '-') : '') + '</div></div></label>';
-    }).join('') : '<p class="hint">No ' + (lbMode === 'BIN' ? 'bins' : 'totes') + ' set up yet. Add them in Setup.</p>';
+    }).join('') : '<p class="hint">No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.</p>';
     qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
     $('labelPrint').textContent = 'Print selected labels (' + n + ')';
   }
@@ -1056,6 +1099,19 @@
     return q.createSvgTag({ cellSize: 2, margin: 0, scalable: true });
   }
   $('labelPrint').onclick = function () {
+    if (lbMode === 'RACK') {
+      var signs = RACKS.filter(function (r) { return lbSel[r.loc]; });
+      if (!signs.length) return toast('Tick the rack signs to print first', 'bad');
+      var sh = '';
+      for (var si = 0; si < signs.length; si += 2) {
+        sh += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">' + signs.slice(si, si + 2).map(function (r) {
+          return '<div class="lab racksign"><div class="rs-k">RACK</div><div class="rs-n">' + r.loc + '</div><div class="rs-h">Shelves S1, S2, S3 … from the bottom · bins B01, B02 … from the left<br>Bin label example: <b>' + r.loc + '-S2-B05</b></div></div>';
+        }).join('') + '</div>';
+      }
+      $('printArea').innerHTML = sh;
+      setTimeout(function () { window.print(); }, 150);
+      return;
+    }
     var chosen = snap.locations.filter(function (l) { return lbSel[l.loc] && l.type === lbMode && P[l.sku]; })
       .sort(function (a, b) { return a.loc.localeCompare(b.loc, undefined, { numeric: true }); });
     if (!chosen.length) return toast('Tick the labels to print first', 'bad');
