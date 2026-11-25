@@ -369,3 +369,17 @@ body.sup .sup-hide { display: none !important; }
 .lab .lmix { font-size: 8.5pt; line-height: 1.15; }
 .lab .lmixlist { font-size: 13pt; line-height: 1.35; }
 .lab .lmixlist span { font-size: 9pt; color: #555; }
+
+/* Labels waiting to be printed */
+.labelbar { border-color: #1e6fd9; background: #eef5fe; color: #0f4fa3; }
+.labelbar span { color: #1e4f8f; }
+#labelList .item .pill { flex: none; }
+
+/* Pack a box */
+.packbtn { width: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; text-align: left; border: 2px dashed #8a5a00; background: #fff8ec; color: #6b4500; border-radius: 14px; padding: 12px 14px; margin: 0 0 12px; font-size: 15px; }
+.packbtn span { font-size: 13px; color: #8a5a00; }
+.packlist { background: #f6f7f9; border-radius: 12px; padding: 8px 12px; margin: 6px 0 10px; font-size: 14px; line-height: 1.6; max-height: 26vh; overflow-y: auto; }
+.packhit { display: flex; flex-direction: column; gap: 6px; }
+.packqty { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 10px; }
+.packqty .stepper { margin: 0; }
+.packqty .big { width: 100%; min-height: 48px; }

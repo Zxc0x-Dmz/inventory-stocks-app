@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.10 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.11 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -685,8 +685,99 @@
     };
     setTimeout(fillPhotos, 0);
   }
+  /* ---------------- PACK A BOX ----------------
+   * Several parts into one box without scanning: choose blue bin / white box and the model, the app gives the box its
+   * code (or pick a box already started), then type a part, tap it, enter how many, Add, and so on.  The label is
+   * printed later from the Labels tab. */
+  var pack = null;   // {kind, model, loc, added: [{sku, qty}]}
+  var PACK_MODELS = [['NB3', 'C1'], ['NB2', 'A200'], ['OK4', 'OKAI 400C'], ['UNI', 'Universal']];
+  function packStart() {
+    pack = pack && pack.loc && !pack.done ? pack : { kind: 'TOTE', model: 'NB3', loc: '', added: [] };
+    if (!pack.loc) packChoose(); else packFill();
+  }
+  function packChoose() {
+    var auto = nextCode(pack.kind, pack.model);
+    var started = sharedBoxes(pack.kind, pack.model, []);
+    modal('<h3 class="formtitle">📦 Pack a box</h3>' +
+      '<label class="lbl">Which kind of box?</label><div class="kinds">' + ['TOTE', 'BIN'].map(function (x) {
+        return '<button type="button" class="kindbtn ' + KIND[x].cls + (x === pack.kind ? ' on' : '') + '" data-pk="' + x + '"><i></i>' + KIND[x].name + '</button>';
+      }).join('') + '</div>' +
+      '<label class="lbl">For which vehicle?</label><div class="rsrow">' + PACK_MODELS.map(function (m) {
+        return '<button type="button" class="rs' + (m[0] === pack.model ? ' on' : '') + '" data-pm="' + m[0] + '">' + m[1] + '</button>';
+      }).join('') + '</div>' +
+      '<div class="picks"><button type="button" class="pickbox new on" data-pl="' + esc(auto) + '"><small>New ' + KIND[pack.kind].name.toLowerCase() + '</small><b class="mono">' + esc(auto) + '</b><span>next free number</span></button>' +
+      started.map(function (b) { return '<button type="button" class="pickbox shared" data-pl="' + esc(b.loc) + '"><small>Keep packing</small><b class="mono">' + esc(b.loc) + '</b><span>' + b.n + ' part' + (b.n > 1 ? 's' : '') + ' inside</span></button>'; }).join('') + '</div>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Cancel</button><button type="button" class="big ok" data-x="stay" id="packGo">Start packing</button></div>');
+    var chosen = auto;
+    qsa('#modalBody [data-pk]').forEach(function (b) { b.onclick = function () { pack.kind = b.dataset.pk; packChoose(); }; });
+    qsa('#modalBody [data-pm]').forEach(function (b) { b.onclick = function () { pack.model = b.dataset.pm; packChoose(); }; });
+    qsa('#modalBody [data-pl]').forEach(function (b) { b.onclick = function () { chosen = b.dataset.pl; qsa('#modalBody [data-pl]').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+    $('packGo').onclick = function () { pack.loc = chosen; pack.added = []; packFill(); };
+  }
+  function packFill(q) {
+    var inside = inBox(pack.loc).map(function (l) { return { sku: l.sku, qty: num(l.qty) }; });
+    pack.added.forEach(function (a) { if (!inside.some(function (x) { return x.sku === a.sku; })) inside.push({ sku: a.sku, qty: a.qty }); });
+    modal('<h3 class="formtitle">📦 Packing <span class="mono">' + esc(pack.loc) + '</span></h3><p class="hint">' + KIND[kindOf(pack.loc)].name + ' · ' + (inside.length ? inside.length + ' part' + (inside.length > 1 ? 's' : '') + ' in it' : 'empty so far') + '</p>' +
+      (inside.length ? '<div class="packlist">' + inside.map(function (x) { var pt = P[x.sku] || { name: x.sku }; return '<div><b>' + x.qty + '</b> × ' + esc(pt.name) + '</div>'; }).join('') + '</div>' : '') +
+      '<label class="lbl" for="packQ">Add a part: type its name or SKU</label><input id="packQ" type="search" autocomplete="off" placeholder="e.g. brake lever, 4001660" value="' + esc(q || '') + '">' +
+      '<div id="packHits" class="ordlist"></div>' +
+      '<div class="btns"><button type="button" class="big" data-x="stay" id="packOther">Other box</button><button type="button" class="big ok" data-x="stay" id="packDone">Done</button></div>');
+    var model = (/^(A200|C1|OK|UNI)-/.exec(pack.loc) || [])[1], mkey = { A200: 'NB2', C1: 'NB3', OK: 'OK4', UNI: 'UNI' }[model];
+    var showHits = function () {
+      var v = $('packQ').value.trim();
+      if (!v) { $('packHits').innerHTML = ''; return; }
+      var hits = matchParts(v).sort(function (a, b) { return (b.model === mkey) - (a.model === mkey); }).slice(0, 8);
+      $('packHits').innerHTML = hits.length ? hits.map(function (pt) {
+        return '<div class="packhit" data-sku="' + esc(pt.sku) + '"><button type="button" class="ordrow" data-pick="1"><span class="pc-ph' + (pt.photo_id ? '" data-photo="' + esc(pt.photo_id) + '"' : ' none"') + '></span>' +
+          '<span class="ot"><b>' + esc(pt.name) + '</b><small class="mono">' + esc(codeOf(pt)) + ' · ' + esc(MODEL_TAG[pt.model] || pt.model) + '</small></span></button></div>';
+      }).join('') : '<p class="hint">No part found. Try another word.</p>';
+      qsa('#packHits [data-pick]').forEach(function (b) {
+        b.onclick = function () {
+          var box = b.parentNode, sku = box.dataset.sku;
+          qsa('#packHits .packqty').forEach(function (x) { x.remove(); });
+          var row = document.createElement('div'); row.className = 'packqty';
+          row.innerHTML = '<div class="stepper sm"><button type="button" data-step="-1">−</button><input type="number" inputmode="numeric" min="1" value="1"><button type="button" data-step="1">+</button></div><button type="button" class="big ok">Add to ' + esc(pack.loc) + '</button>';
+          box.appendChild(row); row.querySelector('input').select();
+          row.querySelector('.big').onclick = function () {
+            var qty = Math.round(num(row.querySelector('input').value)), pt = P[sku];
+            if (qty < 1) return toast('Enter how many', 'bad');
+            if (!signedIn()) return showSignIn();
+            enqueue('putAway', { id: uid(), type: 'RECEIVE', sku: sku, loc: pack.loc, qty: qty, device: cfg.device }, '+' + qty + ' ' + pt.name + ' → ' + pack.loc);
+            var a = pack.added.filter(function (x) { return x.sku === sku; })[0]; if (a) a.qty += qty; else pack.added.push({ sku: sku, qty: qty });
+            toast('Added ' + qty + ' × ' + pt.name + ' to ' + pack.loc, 'good');
+            packFill(); setTimeout(function () { if ($('packQ')) $('packQ').focus(); }, 60);
+          };
+        };
+      });
+      setTimeout(fillPhotos, 0);
+    };
+    $('packQ').addEventListener('input', showHits); showHits();
+    $('packOther').onclick = function () { pack.loc = ''; packChoose(); };
+    $('packDone').onclick = function () {
+      var n = pack.added.length, loc = pack.loc; pack = null; closeModal(); renderAll();
+      toast(n ? loc + ' packed (' + n + ' part' + (n > 1 ? 's' : '') + '). Its label is waiting in Labels.' : 'Nothing added to ' + loc, n ? 'good' : 'bad');
+    };
+  }
+  $('packOpen').onclick = function () { if (!signedIn()) return showSignIn(); packStart(); };
+
+  /** Boxes whose label is not printed yet (new boxes, or mixed boxes whose contents changed). */
+  function needLabel() {
+    return Object.keys(BOXES).filter(function (k) { var rows = inBox(k); return rows.length && rows.some(function (r) { return !r.label_printed; }); });
+  }
+  function renderLabelBanner() {
+    var n = isSup() ? needLabel().length : 0;
+    $('labelBanner').innerHTML = n ? '<button type="button" class="orderbar labelbar" id="labelOpen"><b>🏷 ' + n + ' new box' + (n > 1 ? 'es' : '') + ' need' + (n > 1 ? '' : 's') + ' a label</b><span>print from the Labels tab</span><i>Labels ›</i></button>' : '';
+    if ($('labelOpen')) $('labelOpen').onclick = function () {
+      var bins = needLabel().filter(function (k) { return kindOf(k) === 'BIN'; }).length;
+      lbMode = bins ? 'BIN' : 'TOTE'; lbSel = {}; $('labelNew').checked = true;
+      qsa('#labelSeg button').forEach(function (x) { x.classList.toggle('on', x.dataset.lb === lbMode); });
+      $('labelLayout').style.display = lbMode === 'BIN' ? '' : 'none';
+      showTab('labels');
+    };
+  }
   function renderTake() {
     renderOrderBanner();
+    renderLabelBanner();
     var q = $('scanInput').value.trim(), onlyStock = $('inStockOnly').checked;
     $('modelCards').innerHTML = MODEL_CARDS.map(function (m) {
       var parts = snap.parts.filter(function (p) { return p.model === m.k; });
@@ -1218,6 +1309,7 @@
     b.onclick = function () { lbMode = b.dataset.lb; lbSel = {}; qsa('#labelSeg button').forEach(function (x) { x.classList.toggle('on', x === b); }); $('labelLayout').style.display = lbMode === 'BIN' ? '' : 'none'; renderLabels(); };
   });
   $('labelSearch').addEventListener('input', renderLabels);
+  $('labelNew').addEventListener('change', function () { lbSel = {}; renderLabels(); });
   $('labelAll').onchange = function () { var on = this.checked; labelPool().forEach(function (l) { lbSel[l.loc] = on; }); renderLabels(); };
   var RACKS = []; for (var rk = 1; rk <= 15; rk++) RACKS.push({ loc: 'R' + ('0' + rk).slice(-2), type: 'RACK' });
   function labelPool() {
@@ -1226,6 +1318,7 @@
     return Object.keys(BOXES).map(function (k) { var rows = inBox(k); return rows.length ? { loc: k, type: rows[0].type, rows: rows } : null; })
       .filter(function (b) {
         if (!b || b.type !== lbMode) return false;
+        if ($('labelNew').checked && !b.rows.some(function (r) { return !r.label_printed; })) return false;
         if (!q) return true;
         return (b.loc + ' ' + b.rows.map(function (l) { var p = P[l.sku]; return p.sku + ' ' + p.ns_sku + ' ' + p.name + ' ' + p.model; }).join(' ')).toLowerCase().indexOf(q) >= 0;
       }).sort(function (a, b) { return a.loc.localeCompare(b.loc, undefined, { numeric: true }); });
@@ -1242,12 +1335,19 @@
       $('labelPrint').textContent = 'Print selected signs (' + n + ')';
       return;
     }
+    var nb = needLabel(), segN = { BIN: 0, TOTE: 0 };
+    nb.forEach(function (k) { segN[kindOf(k)]++; });
+    qsa('#labelSeg button').forEach(function (x) {
+      var base = { BIN: 'Bin labels', TOTE: 'White box labels', RACK: 'Rack signs' }[x.dataset.lb];
+      x.textContent = base + (segN[x.dataset.lb] ? ' (' + segN[x.dataset.lb] + ' new)' : '');
+    });
     $('labelList').innerHTML = pool.length ? pool.map(function (b) {
       var p = P[b.rows[0].sku], mixed = b.rows.length > 1;
       return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · ' +
         (mixed ? 'Mixed box · ' + b.rows.length + ' parts' : esc(p.name)) + '</div><div class="t2">' +
-        (mixed ? esc(b.rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) : 'SKU ' + esc(codeOf(p)) + (b.type === 'TOTE' ? ' · qty ' + num(b.rows[0].qty) : '')) + '</div></div></label>';
-    }).join('') : '<p class="hint">No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.</p>';
+        (mixed ? esc(b.rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) : 'SKU ' + esc(codeOf(p)) + (b.type === 'TOTE' ? ' · qty ' + num(b.rows[0].qty) : '')) + '</div></div>' +
+        (b.rows.some(function (r) { return !r.label_printed; }) ? '<span class="pill err">NEW · no label yet</span>' : '<span class="pill done">Printed ' + esc(b.rows[0].label_printed) + '</span>') + '</label>';
+    }).join('') : '<p class="hint">' + ($('labelNew').checked ? 'All ' + (lbMode === 'BIN' ? 'blue bin' : 'white box') + ' labels are printed. Untick "Only boxes without a label" to print one again.' : 'No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.') + '</p>';
     qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
     $('labelPrint').textContent = 'Print selected labels (' + n + ')';
   }
@@ -1310,7 +1410,16 @@
         }
       }
       $('printArea').innerHTML = html;
-      setTimeout(function () { window.print(); }, 150);
+      setTimeout(function () {
+        window.print();
+        var locs = chosen.map(function (b) { return b.loc; });
+        modal('<h3 class="formtitle">Did the labels print OK?</h3><p class="hint">' + locs.length + ' label' + (locs.length > 1 ? 's' : '') + ': ' + esc(locs.join(', ')) + '</p>' +
+          '<div class="btns"><button type="button" class="big" data-x="no">No, keep them on the list</button><button type="button" class="big ok" data-x="yes">Yes, mark printed</button></div>', function (x) {
+          if (x !== 'yes') return;
+          api('markPrinted', { locs: locs }).then(function () { toast(locs.length + ' label' + (locs.length > 1 ? 's' : '') + ' marked printed', 'good'); lbSel = {}; return refresh(); })
+            .catch(function (e) { toast(e.business ? e.message : 'Needs a connection. Try again.', 'bad'); });
+        });
+      }, 150);
     });
   };
 

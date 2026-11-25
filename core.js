@@ -7,7 +7,7 @@
  */
 var TABLES = {
   Parts:     ['sku', 'name', 'model', 'system', 'abc', 'ns_sku', 'tier_code', 'fits', 'unit', 'notes', 'price_eur', 'weight_g', 'photo_id', 'hs_code', 'reorder_at'],
-  Locations: ['loc', 'type', 'sku', 'qty', 'min', 'sealed_date', 'last_count', 'notes'],
+  Locations: ['loc', 'type', 'sku', 'qty', 'min', 'sealed_date', 'last_count', 'notes', 'label_printed'],
   Movements: ['id', 'ts', 'type', 'sku', 'from_loc', 'to_loc', 'qty', 'mechanic', 'vehicle', 'note', 'device'],
   Counts:    ['id', 'ts', 'loc', 'sku', 'expected', 'counted', 'variance', 'counter', 'status', 'resolved_by', 'resolved_ts'],
   Staff:     ['name', 'pin_hash', 'role', 'active']
@@ -149,6 +149,7 @@ Core.prototype.move = function (p) {
     // everything moved out: the old box lets go of the part, so the part only shows in its new box
     if (left === 0) { srcPatch.sku = ''; srcPatch.min = 0; srcPatch.sealed_date = ''; srcPatch.last_count = ''; out.released = true; }
     this.s.update('Locations', src, srcPatch);
+    if (left === 0) this.labelOutdated_(src.loc);
     this.s.update('Locations', dst, { qty: num_(dst.qty) + qty });
     this.log_({ id: p.id, ts: now, type: type, sku: movedSku, from_loc: src.loc, to_loc: dst.loc, qty: qty, mechanic: p.mechanic, note: p.note, device: p.device });
     out.to = { loc: dst.loc, sku: dst.sku, qty: num_(dst.qty) };
@@ -311,10 +312,28 @@ Core.prototype.ensureBox_ = function (id, sku, min) {
   var empty = this.boxRows_(id).filter(function (r) { return !r.sku; })[0];
   if (empty) {
     this.s.update('Locations', empty, { sku: sku, min: min !== undefined && min !== '' ? num_(min) : num_(empty.min) });
+    this.labelOutdated_(id);
     return this.findLoc_(id, sku);
   }
-  this.s.append('Locations', { loc: id, type: isTote_(id) ? 'TOTE' : 'BIN', sku: sku, qty: 0, min: num_(min), sealed_date: '', last_count: '', notes: '' });
+  this.s.append('Locations', { loc: id, type: isTote_(id) ? 'TOTE' : 'BIN', sku: sku, qty: 0, min: num_(min), sealed_date: '', last_count: '', notes: '', label_printed: '' });
+  this.labelOutdated_(id);
   return this.findLoc_(id, sku);
+};
+
+/** The box's printed label no longer matches what is inside: show it again under "needs a label". */
+Core.prototype.labelOutdated_ = function (id) {
+  var self = this;
+  this.boxRows_(id).forEach(function (r) { if (r.label_printed) self.s.update('Locations', r, { label_printed: '' }); });
+};
+
+/** Labels were printed for these boxes.  p = {locs: [box codes]} */
+Core.prototype.markPrinted = function (p) {
+  var self = this, day = this.nowIso().slice(0, 10), n = 0;
+  (p.locs || []).slice(0, 500).forEach(function (loc) {
+    self.boxRows_(loc).forEach(function (r) { self.s.update('Locations', r, { label_printed: day }); n++; });
+  });
+  this.s.bump();
+  return { ok: true, marked: n, version: this.s.version() };
 };
 
 /** Add stock of a part into a box (new box, empty box, or the box that already holds it).  Logged as RECEIVE.
@@ -423,6 +442,7 @@ Core.prototype.handle = function (op, p, who) {
     case 'saveLocations': return this.saveLocations(p);
     case 'savePart': return this.savePart(p, who);
     case 'setReorder': return this.setReorder(p);
+    case 'markPrinted': return this.markPrinted(p);
     case 'history': return this.history(p);
     case 'addStaff': return this.addStaff(p);
     case 'setStaff': return this.setStaff(p, who);

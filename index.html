@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Stocks">
-<link rel="stylesheet" href="style.css?v=2.10">
+<link rel="stylesheet" href="style.css?v=2.11">
 </head>
 <body>
 <header class="top">
@@ -38,6 +38,8 @@
       <button class="scanbtn" type="button" data-cam="scanInput"><span>📷</span> Scan</button>
     </div>
     <div id="orderBanner"></div>
+    <div id="labelBanner"></div>
+    <button type="button" class="packbtn" id="packOpen"><b>📦 Pack a box</b><span>put several parts in one box, no scanning</span></button>
     <p class="secthead">Models</p>
     <div id="modelCards" class="models"></div>
     <div class="gridhead"><p class="secthead"><span id="gridTitle">All parts</span> <small id="gridCount"></small></p>
@@ -126,6 +128,7 @@
         <option value="2x7">A4 · 14 per sheet (99 × 38 mm)</option>
         <option value="2x4">A4 · 8 per sheet (99 × 67 mm)</option>
       </select>
+      <label class="tog"><input type="checkbox" id="labelNew" checked> Only boxes without a label</label>
       <label class="tog"><input type="checkbox" id="labelAll"> Select all shown</label>
     </div>
     <div id="labelList" class="list compact"></div>
@@ -255,8 +258,8 @@
 <div id="toast" class="toast hidden"></div>
 <div id="printArea"></div>
 
-<script src="core.js?v=2.10"></script>
-<script src="demo-seed.js?v=2.10"></script>
-<script src="app.js?v=2.10"></script>
+<script src="core.js?v=2.11"></script>
+<script src="demo-seed.js?v=2.11"></script>
+<script src="app.js?v=2.11"></script>
 </body>
 </html>
