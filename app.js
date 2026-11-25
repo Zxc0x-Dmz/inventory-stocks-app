@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.5 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.6 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -240,6 +240,7 @@
       if (me && me.role !== cfg.role) { cfg.role = me.role; save('inv.cfg', cfg); }
       applyPending();
       index(); renderAll(); setStatus();
+      syncPhotos();
     }).catch(function (e) {
       online = false; setStatus();
       if (e.code === 'AUTH') authLost(e.message);
@@ -513,9 +514,13 @@
     if (photoBusy[id]) return photoBusy[id];
     return (photoBusy[id] = cacheGet(id).then(function (hit) {
       if (hit) return hit;
-      return limitPhoto(function () { return api('photo', { id: id }); }).then(function (r) { if (r.data) cachePut(id, r.data); return r.data || null; });
+      if (photoSyncRun) return photoSyncRun.then(function () { return photoMem[id] !== undefined ? photoMem[id] : one(); });   // the background sync brings it
+      return one();
     }).then(function (d) { photoMem[id] = d; delete photoBusy[id]; return d; },
       function () { delete photoBusy[id]; return null; }));   // offline: try again later
+    function one() {
+      return limitPhoto(function () { return api('photo', { id: id }); }).then(function (r) { if (r.data) cachePut(id, r.data); return r.data || null; });
+    }
   }
   /** Fills every photo placeholder on screen. */
   function fillPhotos() {
@@ -529,6 +534,36 @@
         else el.dataset.state = 'none';
       });
     });
+  }
+  /* Background photo sync: after sign-in this device downloads every photo it does not have yet (or that changed),
+   * up to 40 per request, and keeps them in Cache Storage.  So photos show at once, also offline.
+   * inv.photoVer = {photo id: 'updated' value of the copy saved here}. */
+  var photoSyncBusy = false, photoSyncAt = 0, photoSyncRun = null;
+  function syncPhotos(force) {
+    if (photoSyncBusy || !signedIn() || mode() === 'DEMO') return;
+    if (!force && Date.now() - photoSyncAt < 10 * 60000) return;    // at most every 10 minutes
+    photoSyncBusy = true; photoSyncAt = Date.now();
+    var ver = load('inv.photoVer', {}), used = {};
+    (snap.parts || []).forEach(function (p) { if (p.photo_id) used[p.photo_id] = 1; });
+    photoSyncRun = api('photoList').then(function (r) {
+      var need = (r.list || []).filter(function (x) { return used[x[0]] && ver[x[0]] !== x[1]; });
+      var done = 0, step = function () {
+        if (done >= need.length) return;
+        var batch = [], first = need[done][2];
+        while (done < need.length && batch.length < 40 && need[done][2] - first <= 150) { batch.push(need[done]); done++; }
+        return api('photos', { rows: batch.map(function (x) { return x[2]; }) }).then(function (b) {
+          (b.items || []).forEach(function (it) {
+            cachePut(it.id, it.data); ver[it.id] = it.updated;
+            var old = photoMem[it.id]; photoMem[it.id] = it.data; delete photoBusy[it.id];
+            qsa('[data-photo="' + it.id + '"]').forEach(function (el) { if (old !== it.data) delete el.dataset.state; });
+          });
+          save('inv.photoVer', ver); fillPhotos();
+          return step();
+        });
+      };
+      return step();
+    }).catch(function () { photoSyncAt = 0; })   // offline or old backend: try again next time
+      .then(function () { photoSyncBusy = false; photoSyncRun = null; });
   }
   function bigPhoto(d) {
     var o = document.createElement('div'); o.className = 'photoBig'; o.innerHTML = '<img alt="">'; o.firstChild.src = d;
@@ -626,6 +661,7 @@
     $('gridMore').classList.toggle('hidden', list.length <= gridLimit);
     $('gridMore').textContent = 'Show more (' + (list.length - gridLimit) + ' more)';
     qsa('#partGrid .pc').forEach(function (b) { b.onclick = function () { openPart(b.dataset.sku); }; });
+    setTimeout(fillPhotos, 0);   // photos of the cards just drawn (also after a model tap or a search)
     renderRecent();
   }
   $('scanInput').addEventListener('input', function () { gridLimit = 48; renderTake(); });
@@ -709,7 +745,6 @@
       if (mode === 'MOVE') h += '<label class="lbl">From which box?</label>' + boxChips(st, function (l) { return num(l.qty) > 0; }) + boxInput('Move to a', st);
       if (mode === 'ADD') h += boxInput('Put it in a', st) + '<p class="hint">A new label code is set up for this part automatically.</p>';
       h += qtyField(1);
-      if (mode === 'OUT') h += vehField(true);
       if (mode === 'RETURN') h += vehField(false);
       if (mode === 'SCRAP') h += '<label class="lbl" for="noteInput">What is wrong? (optional)</label><input id="noteInput" placeholder="e.g. cracked in transit">';
       h += '<div class="btns"><button type="button" class="big" id="doBack">Back</button><button type="button" class="big ' + (mode === 'SCRAP' ? 'bad' : mode === 'OUT' ? 'go' : 'ok') + '" id="doGo">' + title + '</button></div>' +
@@ -797,7 +832,6 @@
     } else {
       if (!box || !L[box]) return toast('Tap the box first', 'bad');
       var veh = $('vehInput') ? vehicleFrom($('vehInput').value) : '';
-      if (mode === 'OUT' && !veh) { $('vehInput').focus(); return toast('Scan or type the scooter / bike ID', 'bad'); }
       if ((mode === 'OUT' || mode === 'SCRAP') && L[box].type === 'TOTE') return toast(box + ' is a white box. Use More → Move to put stock into a blue bin first.', 'bad');
       item = { id: uid(), type: mode, loc: box, sku: p.sku, qty: qty, vehicle: veh, note: $('noteInput') ? $('noteInput').value.trim() : '', device: cfg.device };
       var verb = { OUT: '−', RETURN: '+', SCRAP: '✕ −' }[mode];
@@ -1301,7 +1335,7 @@
       var next = function () {
         if (done >= ids.length) {
           out.textContent = saved + ' photos saved. Phones show them the next time a part is opened.';
-          photoMem = {}; qsa('[data-photo]').forEach(function (el) { delete el.dataset.state; }); renderAll();
+          photoMem = {}; qsa('[data-photo]').forEach(function (el) { delete el.dataset.state; }); renderAll(); syncPhotos(true);
           $('photoGo').disabled = false; return;
         }
         var batch = ids.slice(done, done + 12);
