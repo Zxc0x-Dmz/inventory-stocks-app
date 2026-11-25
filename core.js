@@ -249,6 +249,47 @@ Core.prototype.savePart = function (p, who) {
   return { ok: true, version: this.s.version() };
 };
 
+var LOC_RE = /^(R\d+-S\d+-B\d+(-[A-Z])?|T-?\d+)$/;
+function normLoc_(v) { return String(v || '').trim().toUpperCase().replace(/\s+/g, ''); }
+
+/** Makes sure box `id` exists and holds `sku`: creates it, or fills an empty box.  Returns the box row. */
+Core.prototype.ensureBox_ = function (id, sku, min) {
+  id = normLoc_(id);
+  if (!LOC_RE.test(id)) fail_('Box must look like R1-S3-B04, R1-S3-B04-A or T-0001');
+  var ex = this.findLoc_(id);
+  if (ex) {
+    if (ex.sku === sku) return ex;
+    if (ex.sku && num_(ex.qty) !== 0) fail_(id + ' already holds ' + num_(ex.qty) + ' x ' + ex.sku + '. Use another box.');
+    this.s.update('Locations', ex, { sku: sku, min: min !== undefined && min !== '' ? num_(min) : num_(ex.min) });
+    return ex;
+  }
+  this.s.append('Locations', { loc: id, type: /^T/.test(id) ? 'TOTE' : 'BIN', sku: sku, qty: 0, min: num_(min), sealed_date: '', last_count: '', notes: '' });
+  return this.findLoc_(id);
+};
+
+/** Add stock of a part into a box (new box, empty box, or the box that already holds it).  Logged as RECEIVE.
+ *  p = {id, sku, loc, qty, min, note} */
+Core.prototype.putAway = function (p) {
+  if (!p.id) fail_('Missing movement id');
+  if (this.s.hasMovement(p.id)) return { ok: true, duplicate: true };
+  var part = this.findPart_(String(p.sku || '').toUpperCase());
+  if (!part) fail_('Unknown SKU ' + p.sku);
+  if (Math.round(num_(p.qty)) <= 0) fail_('Quantity must be 1 or more');
+  var box = this.ensureBox_(p.loc, part.sku, p.min);
+  return this.move({ id: p.id, type: 'RECEIVE', loc: box.loc, qty: p.qty, mechanic: p.mechanic, note: p.note, device: p.device });
+};
+
+/** Move stock from one box to another (a new or empty box is set up for the part).  p = {id, from, to, qty, force} */
+Core.prototype.moveStock = function (p) {
+  if (!p.id) fail_('Missing movement id');
+  if (this.s.hasMovement(p.id)) return { ok: true, duplicate: true };
+  var src = this.findLoc_(p.from);
+  if (!src || !src.sku) fail_('Box ' + p.from + ' is not set up');
+  if (normLoc_(p.to) === src.loc) fail_('Choose a different box to move to');
+  var dst = this.ensureBox_(p.to, src.sku);
+  return this.move({ id: p.id, type: src.type === 'TOTE' ? 'RESTOCK' : 'TRANSFER', loc: src.loc, to_loc: dst.loc, qty: p.qty, force: p.force, mechanic: p.mechanic, note: p.note, device: p.device });
+};
+
 /** Pieces from a scale reading.  Returns null when the part has no weight per piece. */
 function piecesFromGrams_(grams, weightG) {
   var g = Number(grams), w = Number(weightG);
@@ -324,6 +365,8 @@ Core.prototype.handle = function (op, p, who) {
     case 'snapshot': return this.snapshot();
     case 'version': return { version: this.s.version() };
     case 'move': return this.move(p);
+    case 'putAway': return this.putAway(p);
+    case 'moveStock': return this.moveStock(p);
     case 'count': return this.count(p);
     case 'resolveCount': return this.resolveCount(p);
     case 'saveLocation': return this.saveLocation(p);

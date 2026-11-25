@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '1.4 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.0 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -28,8 +28,13 @@
   function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
   function today() { return new Date().toISOString().slice(0, 10); }
   function uid() { return (cfg.device || 'D') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6); }
-  function load(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
-  function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+  // device storage; if the browser blocks it (private mode, embedded pages) keep things in memory for this session
+  var memStore = {};
+  function load(k, d) {
+    try { var v = JSON.parse(localStorage.getItem(k)); if (v != null) return v; } catch (e) {}
+    return memStore[k] != null ? JSON.parse(memStore[k]) : d;
+  }
+  function save(k, v) { var s = JSON.stringify(v); memStore[k] = s; try { localStorage.setItem(k, s); } catch (e) {} }
   function daysSince(d) { if (!d || !/^\d{4}-\d\d-\d\d/.test(d)) return 9999; return Math.floor((Date.now() - new Date(d.slice(0, 10)).getTime()) / 864e5); }
   function loadScript(src) {
     return new Promise(function (ok, bad) {
@@ -128,6 +133,12 @@
       });
     }
     if (op === 'photo') return steps.then(function () { return { ok: true, id: p.id, data: (window.DEMO_PHOTOS && window.DEMO_PHOTOS[p.id]) || null }; });
+    if (op === 'savePhotos') return steps.then(function () {
+      if (!who || who.role !== 'supervisor') throw bizError('Only a supervisor can do this', null, 'ROLE');
+      window.DEMO_PHOTOS = window.DEMO_PHOTOS || {};
+      (p.items || []).forEach(function (it) { window.DEMO_PHOTOS[it.id] = it.data; });   // demo: kept until the page reloads
+      return { ok: true, saved: (p.items || []).length, skipped: 0 };
+    });
     if ((op === 'addStaff' || op === 'setStaff') && p.new_pin !== undefined && p.new_pin !== '') {
       steps = steps.then(function () {
         if (!pinOk_(p.new_pin)) throw bizError('PIN must be 4 to 8 digits');
@@ -219,9 +230,10 @@
     else if (p.type === 'SEAL') { if (sign > 0) { p._was = src.qty; src.qty = String(p.qty); src.sealed_date = today(); } }
     else if (dst) { src.qty = String(num(src.qty) - q); dst.qty = String(num(dst.qty) + q); }
   }
+  var EFFECT_OPS = { move: 1, putAway: 1, moveStock: 1 };
   function applyPending() {
     index();
-    queue.forEach(function (q) { if (q.status === 'wait' && q.op === 'move') effect(q.p, 1); });
+    queue.forEach(function (q) { if (q.status === 'wait' && EFFECT_OPS[q.op]) effect(q.p, 1); });
   }
 
   function enqueue(op, p, label) {
@@ -229,7 +241,7 @@
     // someone else signs in on this device before it is sent
     var item = { id: p.id, op: op, p: p, label: label, status: 'wait', ts: new Date().toISOString(), by: cfg.user, auth: { user: cfg.user, pin: cfg.pin } };
     queue.push(item); saveQueue();
-    if (op === 'move') effect(p, 1);
+    if (EFFECT_OPS[op]) effect(p, 1);
     renderAll(); flush();
     return item;
   }
@@ -246,11 +258,12 @@
       if (r.to && L[r.to.loc]) L[r.to.loc].qty = String(r.to.qty);
       if (r.version) snap.version = r.version;
       flushing = false; renderAll(); flush();
+      if (next.op === 'putAway' || next.op === 'moveStock') refresh();   // a new box may have been set up
     }).catch(function (e) {
       flushing = false;
       if (!e.business) { online = false; setStatus(); setTimeout(flush, 8000); return; }
       // rejected by the rules: undo the local effect and tell the user
-      if (next.op === 'move') { if (next.p.type === 'SEAL' && next.p._was != null && L[next.p.loc]) L[next.p.loc].qty = next.p._was; else effect(next.p, -1); }
+      if (EFFECT_OPS[next.op]) { if (next.p.type === 'SEAL' && next.p._was != null && L[next.p.loc]) L[next.p.loc].qty = next.p._was; else effect(next.p, -1); }
       if (e.extra && e.extra.code === 'SHORT' && !next.p.force) {
         next.status = 'held'; saveQueue(); renderAll();
         askShort(next, e);
@@ -286,14 +299,14 @@
     $('meBtn').textContent = signedIn() ? '👤 ' + cfg.user + (isSup() ? ' ★' : '') : '👤 Sign in';
     document.body.classList.toggle('sup', isSup());
     var tl = $('tabs').querySelector('[data-tab="take"] b'), sl = $('tabs').querySelector('[data-tab="setup"] b');
-    tl.textContent = isSup() ? 'Take' : 'Scan'; sl.textContent = isSup() ? 'Setup' : 'Settings';
+    tl.textContent = 'Parts'; sl.textContent = isSup() ? 'Setup' : 'Settings';
     if (!tabAllowed(current)) showTab('take');
   }
 
   /* ---------------- tabs ---------------- */
   var current = 'take';
-  /** Mechanics get Scan (the take screen), Restock and Settings. */
-  function tabAllowed(t) { return isSup() || t === 'take' || t === 'restock' || t === 'setup'; }
+  /** Mechanics get Parts and Settings. */
+  function tabAllowed(t) { return isSup() || t === 'take' || t === 'setup'; }
   function showTab(t) {
     if (!tabAllowed(t)) t = 'take';
     current = t;
@@ -412,7 +425,7 @@
   function camDone(text) {
     beep(true); closeCam();
     if (handlers[camTarget]) handlers[camTarget](text);
-    else { $(camTarget).value = camTarget === 'takeVehicle' ? vehicleFrom(text) : text; }
+    else if ($(camTarget)) { $(camTarget).value = camTarget === 'vehInput' ? vehicleFrom(text) : String(text).trim().toUpperCase(); }
   }
 
   /* ---------------- modal ---------------- */
@@ -421,7 +434,7 @@
     $('modalBody').innerHTML = html; modalCb = cb || null;
     $('modal').classList.remove('hidden');
     var f = $('modalBody').querySelector('input'); if (f) setTimeout(function () { f.focus(); }, 60);
-    fillPhotos();
+    setTimeout(fillPhotos, 0);
   }
   function closeModal() { $('modal').classList.add('hidden'); $('modalBody').innerHTML = ''; }
   $('modal').addEventListener('click', function (e) {
@@ -443,6 +456,15 @@
     if (!window.caches || !/^https?:/.test(location.protocol)) return;
     caches.open(PHOTO_CACHE).then(function (c) { return c.put(photoKey(id), new Response(data, { headers: { 'Content-Type': 'text/plain' } })); }).catch(function () {});
   }
+  var photoRunning = 0, photoWaiting = [];
+  function limitPhoto(fn) {
+    return new Promise(function (ok, bad) {
+      var go = function () { photoRunning++; fn().then(ok, bad).then(function () { photoRunning--; var n = photoWaiting.shift(); if (n) n(); }); };
+      if (photoRunning < 4) go(); else photoWaiting.push(go);
+    });
+  }
+  var photoScrollT = 0;
+  window.addEventListener('scroll', function () { clearTimeout(photoScrollT); photoScrollT = setTimeout(fillPhotos, 150); }, { passive: true });
   /** Data URL of a part photo, or null.  A missing photo is remembered until the app is reopened. */
   function getPhoto(id) {
     if (!id) return Promise.resolve(null);
@@ -450,17 +472,19 @@
     if (photoBusy[id]) return photoBusy[id];
     return (photoBusy[id] = cacheGet(id).then(function (hit) {
       if (hit) return hit;
-      return api('photo', { id: id }).then(function (r) { if (r.data) cachePut(id, r.data); return r.data || null; });
+      return limitPhoto(function () { return api('photo', { id: id }); }).then(function (r) { if (r.data) cachePut(id, r.data); return r.data || null; });
     }).then(function (d) { photoMem[id] = d; delete photoBusy[id]; return d; },
       function () { delete photoBusy[id]; return null; }));   // offline: try again later
   }
   /** Fills every photo placeholder on screen. */
   function fillPhotos() {
+    var hmax = window.innerHeight * 1.6;
     qsa('[data-photo]').forEach(function (el) {
       if (el.dataset.state) return;
+      if (el.offsetParent === null || el.getBoundingClientRect().top > hmax) return;   // not on screen yet
       el.dataset.state = 'loading';
       getPhoto(el.dataset.photo).then(function (d) {
-        if (d) { el.style.backgroundImage = 'url("' + d + '")'; el.dataset.state = 'ok'; el.onclick = function (e) { e.stopPropagation(); bigPhoto(d); }; }
+        if (d) { el.style.backgroundImage = 'url("' + d + '")'; el.dataset.state = 'ok'; el.innerHTML = ''; el.onclick = function (e) { e.stopPropagation(); bigPhoto(d); }; }
         else el.dataset.state = 'none';
       });
     });
@@ -485,122 +509,243 @@
     var facts = '';
     if (loc) {
       var low = loc.type === 'BIN' && num(loc.min) > 0 && num(loc.qty) <= num(loc.min);
-      facts += '<div class="fact"><small>' + (loc.type === 'TOTE' ? 'Sealed tote' : 'Bin') + '</small><b class="mono">' + esc(loc.loc) + '</b></div>';
+      facts += '<div class="fact"><small>' + (loc.type === 'TOTE' ? 'White box' : 'Blue bin') + '</small><b class="mono">' + esc(loc.loc) + '</b></div>';
       if (!opts.blind) facts += '<div class="fact' + (low ? ' low' : '') + '"><small>' + (loc.type === 'TOTE' ? 'In tote' : 'In bin') + '</small><b>' + num(loc.qty) + '</b></div>';
       if (!opts.blind && loc.type === 'BIN') facts += '<div class="fact"><small>Min</small><b>' + num(loc.min) + '</b></div>';
       if (loc.type === 'TOTE' && loc.sealed_date) facts += '<div class="fact"><small>Sealed</small><b style="font-size:15px">' + esc(loc.sealed_date) + '</b></div>';
     }
-    if (!opts.blind && loc && loc.type === 'BIN') facts += '<div class="fact"><small>In sealed totes</small><b>' + toteQty + '</b></div>';
+    if (!opts.blind && loc && loc.type === 'BIN') facts += '<div class="fact"><small>In white boxes</small><b>' + toteQty + '</b></div>';
     return '<div class="card m-' + esc(part.model) + '"><div class="band"><span>' + esc(m.name) + '</span><span>' + esc(SYSTEMS[part.system] || part.system) + ' · ' + esc(part.abc) + '</span></div>' +
       '<div class="body">' + photoBox(part) + '<div class="name">' + esc(part.name) + '</div><div class="sku">' + esc(part.sku) + (part.ns_sku ? ' · NS ' + esc(part.ns_sku) : '') + '</div>' +
       '<div class="facts">' + facts + '</div>' + (opts.extra || '') + '</div></div>';
   }
 
-  /* ---------------- TAKE ---------------- */
-  var act = 'OUT', take = null;  // take = {loc}
-  qsa('#actionSeg button').forEach(function (b) {
-    b.onclick = function () { act = b.dataset.act; qsa('#actionSeg button').forEach(function (x) { x.classList.toggle('on', x === b); }); renderTake(); };
-  });
-  qsa('.stepper').forEach(function (s) {
-    var inp = s.querySelector('input');
-    qsa('button', s).forEach(function (b) { b.onclick = function () { inp.value = Math.max(1, num(inp.value) + num(b.dataset.step)); }; });
-  });
+  /* ---------------- PARTS (catalogue look: model cards, photo grid, part page) ----------------
+   * Everything starts from finding the part: type a SKU / NetSuite no. / name, tap a card, or scan a label.
+   * The part page has two big actions, TAKE OUT and ADD STOCK; Return, Damaged and Move are under More. */
+  var MODEL_CARDS = [
+    { k: 'OK4', t: 'ES400C', s: 'OKAI · Scooter' }, { k: 'NB3', t: 'C1', s: 'Ninebot · Scooter' },
+    { k: 'NB2', t: 'A200', s: 'Ninebot · Bike' }, { k: 'UNI', t: 'Universal', s: 'Fits several' }
+  ];
+  var MODEL_TAG = { OK4: 'ES400C', NB3: 'C1', NB2: 'A200', UNI: 'Universal' };
+  var gridModel = '', gridLimit = 48, sel = null;   // sel = {sku, box, mode, kind}
+  /** Two kinds of container: blue picking bins on the racks (R1-S1-B02) and white storage boxes (T-0001). */
+  var KIND = { BIN: { name: 'Blue bin', cls: 'kb', eg: 'R1-S1-B02', re: /^R\d+-S\d+-B\d+(-[A-Z])?$/ },
+               TOTE: { name: 'White box', cls: 'kw', eg: 'T-0001', re: /^T-?\d+$/ } };
+  function kindOf(loc) { return /^T/i.test(loc) ? 'TOTE' : 'BIN'; }
+  function kindTag(k) { return '<span class="ktag ' + KIND[k].cls + '"><i></i>' + KIND[k].name + '</span>'; }
 
-  /** Typed text that is not an exact SKU / bin: search SKUs, names and NetSuite numbers. */
-  function findParts(text) {
+  function stockOf(sku) {
+    var locs = (BY[sku] || []).slice().sort(function (a, b) { return num(b.qty) - num(a.qty); });
+    var total = locs.reduce(function (a, l) { return a + num(l.qty); }, 0);
+    var bins = locs.filter(function (l) { return l.type === 'BIN'; });
+    var min = bins.reduce(function (a, l) { return a + num(l.min); }, 0);
+    return { locs: locs, total: total, low: bins.length > 0 && min > 0 && bins.reduce(function (a, l) { return a + num(l.qty); }, 0) <= min };
+  }
+  function codeOf(p) { return p.ns_sku || (/Catalogue code (\S+)/.exec(p.notes || '') || [])[1] || p.sku; }
+  function matchParts(text) {
     var q = String(text || '').trim().toLowerCase();
-    if (q.length < 2) return [];
+    if (!q) return snap.parts.slice();
     var words = q.split(/\s+/);
     return snap.parts.filter(function (p) {
-      var hay = (p.sku + ' ' + p.name + ' ' + (p.ns_sku || '') + ' ' + (p.notes || '')).toLowerCase();
+      var hay = (p.sku + ' ' + p.name + ' ' + (p.ns_sku || '') + ' ' + (p.notes || '') + ' ' + (p.tier_code || '') + ' ' + MODEL_TAG[p.model] + ' ' +
+        (BY[p.sku] || []).map(function (l) { return l.loc; }).join(' ')).toLowerCase();
       return words.every(function (w) { return hay.indexOf(w) >= 0; });
-    }).sort(function (a, b) { return ((BY[b.sku] || []).length > 0) - ((BY[a.sku] || []).length > 0) || a.sku.localeCompare(b.sku); });
-  }
-  function pickPart(list, text) {
-    beep(true);
-    modal('<h3>' + list.length + ' parts match "' + esc(text) + '"</h3><p class="hint">Tap the part you have.</p>' +
-      list.slice(0, 15).map(function (p) {
-        var bins = (BY[p.sku] || []).filter(function (l) { return l.type === 'BIN'; });
-        return '<button class="pick" data-x="' + esc(p.sku) + '"><span class="swatch sw-' + esc(p.model) + '"></span><span class="grow"><b>' + esc(p.name) + '</b>' +
-          '<span class="t2" style="display:block">' + esc(p.sku) + ' · ' + (bins.length ? bins.map(function (l) { return esc(l.loc) + ' (' + num(l.qty) + ')'; }).join(', ') : 'no bin yet') + '</span></span></button>';
-      }).join('') + (list.length > 15 ? '<p class="hint">Showing 15 of ' + list.length + '. Type more of the name.</p>' : '') +
-      '<div class="btns"><button class="big" data-x="cancel">Cancel</button></div>',
-      function (x) { if (x !== 'cancel' && P[x]) scanTake(x); });
-  }
-  function scanTake(code) {
-    var r = resolve(code);
-    if (!r) {
-      var hits = findParts(code);
-      if (hits.length === 1) r = { sku: hits[0].sku };
-      else if (hits.length > 1) { take = null; renderTake(); return pickPart(hits, code); }
-    }
-    if (!r) { beep(false); toast('Not found: ' + code + '. Check the SKU, or scan the bin label.', 'bad'); take = null; renderTake(); return; }
-    var loc = r.loc;
-    if (!loc) {
-      var bins = (BY[r.sku] || []).filter(function (l) { return l.type === 'BIN'; });
-      bins.sort(function (a, b) { return num(b.qty) - num(a.qty); });
-      loc = bins[0];
-      if (!loc) { beep(false); toast(r.sku + ' has no picking bin yet. Add one in Setup.', 'bad'); return; }
-    }
-    if (!loc.sku || !P[loc.sku]) { beep(false); toast(loc.loc + ' has no part assigned. Set it up in Setup.', 'bad'); return; }
-    if (loc.type === 'TOTE' && (act === 'OUT' || act === 'SCRAP')) {
-      beep(false); toast(loc.loc + ' is a sealed tote. Use Restock to break the seal into the bin.', 'bad'); return;
-    }
-    beep(true);
-    take = { loc: loc.loc };
-    $('takeQty').value = 1; $('takeNote').value = '';
-    renderTake();
-    if (act === 'OUT' && !$('takeVehicle').value && window.innerWidth > 800) $('takeVehicle').focus();
+    });
   }
 
   function renderTake() {
-    var loc = take && L[take.loc], part = loc && P[loc.sku];
-    $('takeCard').classList.toggle('hidden', !part);
-    $('takeForm').classList.toggle('hidden', !part);
-    if (part) $('takeCard').innerHTML = partCard(part, loc);
-    $('whoRow').style.display = act === 'OUT' || act === 'RETURN' ? '' : 'none';
-    $('takeWho').textContent = 'Logged under your name: ' + (cfg.user || '-');
-    $('takeGo').textContent = { OUT: 'Take out of bin', RETURN: 'Put back in bin', SCRAP: 'Write off as damaged', RECEIVE: 'Add delivery to bin' }[act];
-    $('takeGo').className = 'big ' + (act === 'SCRAP' ? 'bad' : act === 'OUT' ? 'go' : 'ok');
-    // recent list
+    var q = $('scanInput').value.trim(), onlyStock = $('inStockOnly').checked;
+    $('modelCards').innerHTML = MODEL_CARDS.map(function (m) {
+      var parts = snap.parts.filter(function (p) { return p.model === m.k; });
+      var inStock = parts.filter(function (p) { return stockOf(p.sku).total > 0; }).length;
+      return '<button type="button" class="mcard m-' + m.k + (gridModel === m.k ? ' on' : '') + '" data-model="' + m.k + '"><span class="mband"></span><span class="mt">' + m.t + '</span>' +
+        '<span class="ms">' + m.s + '</span><span class="mc">' + parts.length + ' parts · ' + inStock + ' in stock</span></button>';
+    }).join('');
+    qsa('#modelCards [data-model]').forEach(function (b) { b.onclick = function () { gridModel = gridModel === b.dataset.model ? '' : b.dataset.model; gridLimit = 48; renderTake(); }; });
+
+    var up = q.toUpperCase();
+    var list = matchParts(q).filter(function (p) { return (!gridModel || p.model === gridModel) && (!onlyStock || stockOf(p.sku).total > 0); });
+    list.sort(function (a, b) {
+      var ea = a.sku === up || a.ns_sku === q, eb = b.sku === up || b.ns_sku === q;
+      return (eb - ea) || (stockOf(b.sku).total > 0) - (stockOf(a.sku).total > 0) || a.name.localeCompare(b.name);
+    });
+    var m = MODEL_CARDS.filter(function (x) { return x.k === gridModel; })[0];
+    $('gridTitle').textContent = (m ? m.t + ' parts' : 'All parts') + (q ? ' matching "' + q + '"' : '');
+    $('gridCount').textContent = list.length;
+    $('partGrid').innerHTML = list.length ? list.slice(0, gridLimit).map(function (p) {
+      var st = stockOf(p.sku);
+      return '<button type="button" class="pc" data-sku="' + esc(p.sku) + '">' +
+        (p.photo_id ? '<span class="pc-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></span>' : '<span class="pc-ph none"><i>No photo yet</i></span>') +
+        '<span class="pc-b"><span class="pc-code">' + esc(codeOf(p)) + '</span><span class="pc-n">' + esc(p.name) + '</span>' +
+        '<span class="pc-m"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · <span class="mono">' + esc(p.sku) + '</span></span>' +
+        '<span class="pc-s' + (st.total > 0 ? (st.low ? ' low' : ' ok') : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in ' + esc(st.locs.length === 1 ? st.locs[0].loc : st.locs.length + ' boxes') : 'Not in stock') + '</span></span></button>';
+    }).join('') : '<p class="hint">No parts found. Check the SKU, or try part of the name.</p>';
+    $('gridMore').classList.toggle('hidden', list.length <= gridLimit);
+    $('gridMore').textContent = 'Show more (' + (list.length - gridLimit) + ' more)';
+    qsa('#partGrid .pc').forEach(function (b) { b.onclick = function () { openPart(b.dataset.sku); }; });
+    renderRecent();
+  }
+  $('scanInput').addEventListener('input', function () { gridLimit = 48; renderTake(); });
+  $('inStockOnly').addEventListener('change', function () { gridLimit = 48; renderTake(); });
+  $('gridMore').onclick = function () { gridLimit += 48; renderTake(); };
+
+  function renderRecent() {
     var mine = queue.slice(-25).reverse();
+    $('todayN').textContent = mine.length || '';
     $('recent').innerHTML = mine.length ? mine.map(function (q) {
       var st = { wait: ['wait', 'Waiting'], sent: ['sent', 'Saved'], err: ['err', 'Failed'], held: ['wait', 'Check'] }[q.status] || ['', q.status];
-      return '<div class="item"><span class="swatch sw-' + esc((P[q.p.sku || (L[q.p.loc] || {}).sku] || {}).model || 'UNI') + '"></span><div class="grow"><div class="t1">' + esc(q.label) + '</div>' +
-        '<div class="t2">' + esc(q.ts.slice(11, 16)) + ' · ' + esc(q.p.loc) + (q.p.to_loc ? ' → ' + esc(q.p.to_loc) : '') + (q.p.vehicle ? ' · ' + esc(q.p.vehicle) : '') + (q.by ? ' · ' + esc(q.by) : '') + (q.err ? ' · ' + esc(q.err) : '') + '</div></div>' +
+      var sku = q.p.sku || (L[q.p.loc] || {}).sku;
+      return '<div class="item"><span class="swatch sw-' + esc((P[sku] || {}).model || 'UNI') + '"></span><div class="grow"><div class="t1">' + esc(q.label) + '</div>' +
+        '<div class="t2">' + esc(q.ts.slice(11, 16)) + ' · ' + esc(q.p.loc || '') + (q.p.to_loc ? ' → ' + esc(q.p.to_loc) : '') + (q.p.vehicle ? ' · ' + esc(q.p.vehicle) : '') + (q.by ? ' · ' + esc(q.by) : '') + (q.err ? ' · ' + esc(q.err) : '') + '</div></div>' +
         '<span class="pill ' + st[0] + '">' + st[1] + '</span></div>';
-    }).join('') : '<p class="hint">Nothing yet. Scan a bin label to start.</p>';
+    }).join('') : '<p class="hint">Nothing yet today.</p>';
   }
 
-  $('takeGo').onclick = function () {
-    var loc = take && L[take.loc]; if (!loc) return;
-    var part = P[loc.sku], qty = Math.round(num($('takeQty').value));
-    var veh = vehicleFrom($('takeVehicle').value);
-    if (qty < 1) return toast('Quantity must be 1 or more', 'bad');
-    if (!signedIn()) return showSignIn();
-    if (act === 'OUT' && !veh) { $('takeVehicle').focus(); return toast('Scan or type the scooter / bike ID', 'bad'); }
-    var p = { id: uid(), type: act, loc: loc.loc, sku: loc.sku, qty: qty, vehicle: act === 'OUT' || act === 'RETURN' ? veh : '', note: $('takeNote').value.trim(), device: cfg.device };
-    var verb = { OUT: '−', RETURN: '+', SCRAP: '✕ −', RECEIVE: '+' }[act];
-    enqueue('move', p, verb + qty + ' ' + part.name);
-    toast(verb + qty + ' ' + part.name + ' · ' + loc.loc + ' now ' + num(L[loc.loc].qty), 'good');
-    var nowLoc = L[loc.loc];
-    if (nowLoc.type === 'BIN' && num(nowLoc.min) > 0 && num(nowLoc.qty) <= num(nowLoc.min) && (act === 'OUT' || act === 'SCRAP')) {
-      var totes = (BY[loc.sku] || []).filter(function (l) { return l.type === 'TOTE' && num(l.qty) > 0; });
-      setTimeout(function () {
-        toast('Low stock in ' + loc.loc + ' (' + num(nowLoc.qty) + ' left). ' + (totes.length ? 'Open sealed tote ' + totes[0].loc + '.' : 'No sealed tote left: reorder.'), 'bad');
-      }, 1800);
+  /** Scan / Enter in the search box: a box label or exact SKU opens the part; otherwise the grid shows matches. */
+  function scanTake(code) {
+    var r = resolve(code);
+    if (r && r.loc) { if (!P[r.loc.sku]) { beep(false); return toast(r.loc.loc + ' is an empty box. Open a part and use Add stock.', 'bad'); } beep(true); $('scanInput').value = ''; return openPart(r.loc.sku, r.loc.loc); }
+    if (r && r.sku) { beep(true); $('scanInput').value = ''; return openPart(r.sku); }
+    var hits = matchParts(code);
+    if (hits.length === 1) { beep(true); $('scanInput').value = ''; return openPart(hits[0].sku); }
+    $('scanInput').value = code; showTab('take');
+    if (!hits.length) { beep(false); toast('Not found: ' + code, 'bad'); }
+  }
+
+  /* --- part page --- */
+  function openPart(sku, box) {
+    var st = stockOf(sku);
+    sel = { sku: sku, box: box || (st.locs.filter(function (l) { return num(l.qty) > 0; })[0] || st.locs[0] || {}).loc || '', mode: null };
+    renderPart();
+  }
+  function boxChips(st, pick) {
+    var list = pick ? st.locs.filter(pick) : st.locs;
+    if (!list.length) return '<p class="hint">No box with this part yet.</p>';
+    return '<div class="boxes">' + list.map(function (l) {
+      return '<button type="button" class="boxchip' + (l.loc === sel.box ? ' on' : '') + '" data-box="' + esc(l.loc) + '">' + kindTag(kindOf(l.loc)) + '<b class="mono">' + esc(l.loc) + '</b><span>' + num(l.qty) + ' pcs</span></button>';
+    }).join('') + '</div>';
+  }
+  function qtyField(v) {
+    return '<label class="lbl">How many?</label><div class="stepper"><button type="button" data-step="-1">−</button><input id="fQty" type="number" inputmode="numeric" min="1" value="' + (v || 1) + '"><button type="button" data-step="1">+</button></div>';
+  }
+  function boxInput(label, st) {
+    var k = sel.kind, mine = st.locs.filter(function (l) { return kindOf(l.loc) === k; });
+    var value = sel.box && kindOf(sel.box) === k && sel.mode === 'ADD' ? sel.box : (mine[0] || {}).loc || '';
+    return '<label class="lbl">' + label + '</label><div class="kinds">' + ['BIN', 'TOTE'].map(function (x) {
+        return '<button type="button" class="kindbtn ' + KIND[x].cls + (x === k ? ' on' : '') + '" data-kind="' + x + '"><i></i>' + KIND[x].name + '</button>';
+      }).join('') + '</div>' +
+      (mine.length ? '<p class="hint">This part is already in ' + mine.map(function (l) { return esc(l.loc) + ' (' + num(l.qty) + ')'; }).join(', ') + '.</p>' : '') +
+      '<label class="lbl" for="boxInput">Which ' + KIND[k].name.toLowerCase() + '? Scan or type its label</label>' +
+      '<div class="scanrow"><input id="boxInput" class="scan" placeholder="e.g. ' + KIND[k].eg + '" value="' + esc(value) + '" autocomplete="off" autocapitalize="characters"><button type="button" class="cam" data-cam="boxInput" title="Scan box label">📷</button></div>';
+  }
+  function vehField(required) {
+    return '<label class="lbl" for="vehInput">Scooter / bike ID' + (required ? '' : ' (optional)') + '</label><div class="scanrow"><input id="vehInput" placeholder="Scan the vehicle QR or type it" autocomplete="off" autocapitalize="characters"><button type="button" class="cam" data-cam="vehInput" title="Scan vehicle QR">📷</button></div>';
+  }
+  function renderPart() {
+    var p = P[sel.sku]; if (!p) return;
+    var st = stockOf(p.sku), mode = sel.mode, h = '';
+    h += '<div class="pd"><div class="pd-top">' +
+      (p.photo_id ? '<div class="pd-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></div>' : '<div class="pd-ph none"><i>No photo yet</i></div>') +
+      '<div class="pd-info"><span class="mtag m-' + esc(p.model) + '"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + esc((MODELS[p.model] || {}).name || '') + '</span>' +
+      '<h3>' + esc(p.name) + '</h3><div class="mono">' + esc(p.sku) + '</div>' + (p.ns_sku ? '<div class="mono mute">NS ' + esc(p.ns_sku) + '</div>' : '') +
+      '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : 'Not in stock yet') + '</div></div></div>';
+    if (!mode) {
+      h += (st.locs.length ? '<label class="lbl">Where it is</label>' + boxChips(st) : '') +
+        '<div class="bigacts"><button type="button" class="big go" id="doOut">− Take out</button><button type="button" class="big ok" id="doAdd">+ Add stock</button></div>' +
+        '<details class="more"><summary>More</summary><div class="moreacts"><button type="button" data-mode="RETURN">↩ Return</button><button type="button" data-mode="SCRAP">✕ Damaged</button><button type="button" data-mode="MOVE">⇄ Move to another box</button></div></details>';
+    } else {
+      var title = { OUT: 'Take out', ADD: 'Add stock', RETURN: 'Return unused parts', SCRAP: 'Write off damaged parts', MOVE: 'Move to another box' }[mode];
+      h += '<h4 class="formtitle">' + title + '</h4>';
+      if (mode === 'OUT' || mode === 'SCRAP') h += '<label class="lbl">From which box?</label>' + boxChips(st, function (l) { return l.type === 'BIN' || num(l.qty) > 0; });
+      if (mode === 'RETURN') h += '<label class="lbl">Back into which box?</label>' + boxChips(st, function (l) { return l.type === 'BIN'; });
+      if (mode === 'MOVE') h += '<label class="lbl">From which box?</label>' + boxChips(st, function (l) { return num(l.qty) > 0; }) + boxInput('Move to a', st);
+      if (mode === 'ADD') h += boxInput('Put it in a', st) + '<p class="hint">A new label code is set up for this part automatically.</p>';
+      h += qtyField(1);
+      if (mode === 'OUT') h += vehField(true);
+      if (mode === 'RETURN') h += vehField(false);
+      if (mode === 'SCRAP') h += '<label class="lbl" for="noteInput">What is wrong? (optional)</label><input id="noteInput" placeholder="e.g. cracked in transit">';
+      h += '<div class="btns"><button type="button" class="big" id="doBack">Back</button><button type="button" class="big ' + (mode === 'SCRAP' ? 'bad' : mode === 'OUT' ? 'go' : 'ok') + '" id="doGo">' + title + '</button></div>' +
+        '<p class="hint">Logged under your name: ' + esc(cfg.user || '-') + '</p>';
     }
-    take = null; $('takeVehicle').value = '';
-    renderTake();
-    $('scanInput').focus();
-  };
+    h += '</div>';
+    modal(h);
+    qsa('#modalBody [data-box]').forEach(function (b) {
+      b.onclick = function () { sel.box = b.dataset.box; qsa('#modalBody [data-box]').forEach(function (x) { x.classList.toggle('on', x === b); }); if ($('boxInput') && mode === 'ADD') $('boxInput').value = sel.box; };
+    });
+    qsa('#modalBody [data-cam]').forEach(function (b) { b.onclick = function () { openCam(b.dataset.cam); }; });
+    qsa('#modalBody [data-kind]').forEach(function (b) { b.onclick = function () { var q = $('fQty').value; sel.kind = b.dataset.kind; renderPart(); $('fQty').value = q; }; });
+    if (!mode) {
+      $('doOut').onclick = function () {
+        if (!st.locs.some(function (l) { return num(l.qty) > 0; }) && !st.locs.length) return toast('No stock of this part yet. Use Add stock first.', 'bad');
+        sel.mode = 'OUT'; renderPart();
+      };
+      $('doAdd').onclick = function () { sel.mode = 'ADD'; sel.kind = sel.box ? kindOf(sel.box) : 'BIN'; renderPart(); };
+      qsa('#modalBody [data-mode]').forEach(function (b) {
+        b.onclick = function () {
+          if (b.dataset.mode !== 'RETURN' && !st.locs.length) return toast('This part is not in any box yet.', 'bad');
+          if (b.dataset.mode === 'RETURN' && !st.locs.some(function (l) { return l.type === 'BIN'; })) return toast('This part has no bin to return to. Use Add stock.', 'bad');
+          sel.mode = b.dataset.mode;
+          sel.kind = sel.box && kindOf(sel.box) === 'TOTE' ? 'BIN' : 'TOTE';   // moving: usually white box -> blue bin
+          renderPart();
+        };
+      });
+    } else {
+      $('doBack').onclick = function () { sel.mode = null; renderPart(); };
+      $('doGo').onclick = submitPart;
+      if ($('vehInput')) $('vehInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); this.value = vehicleFrom(this.value); } });
+    }
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('.stepper button'); if (!b) return;
+    var inp = b.parentNode.querySelector('input'); inp.value = Math.max(1, num(inp.value) + num(b.dataset.step));
+  });
+
+  function submitPart() {
+    var p = P[sel.sku], mode = sel.mode, qty = Math.round(num($('fQty').value));
+    if (!signedIn()) return showSignIn();
+    if (qty < 1) return toast('Enter how many', 'bad');
+    var box = sel.box, item;
+    if (mode === 'ADD' || mode === 'MOVE') {
+      var to = String($('boxInput').value || '').trim().toUpperCase().replace(/\s+/g, '');
+      if (!KIND[sel.kind].re.test(to)) { $('boxInput').focus(); return toast('A ' + KIND[sel.kind].name.toLowerCase() + ' label looks like ' + KIND[sel.kind].eg + (sel.kind === 'BIN' ? ' (or R1-S1-B02-A)' : ''), 'bad'); }
+      var there = L[to];
+      if (there && there.sku && there.sku !== p.sku && num(there.qty) !== 0) return toast(to + ' already holds ' + (P[there.sku] || { name: there.sku }).name + '. Use another box.', 'bad');
+      if (mode === 'ADD') {
+        item = { id: uid(), type: 'RECEIVE', sku: p.sku, loc: to, qty: qty, device: cfg.device };
+        enqueue('putAway', item, '+' + qty + ' ' + p.name + ' → ' + KIND[sel.kind].name.toLowerCase() + ' ' + to);
+        toast('Added ' + qty + ' × ' + p.name + ' to ' + KIND[sel.kind].name.toLowerCase() + ' ' + to, 'good');
+      } else {
+        if (!box) return toast('Tap the box to move from', 'bad');
+        if (to === box) return toast('Choose a different box', 'bad');
+        item = { id: uid(), type: 'TRANSFER', sku: p.sku, from: box, to: to, loc: box, to_loc: to, qty: qty, device: cfg.device };
+        enqueue('moveStock', item, '⇄ ' + qty + ' ' + p.name + ' ' + box + ' → ' + to);
+        toast('Moved ' + qty + ' from ' + KIND[kindOf(box)].name.toLowerCase() + ' ' + box + ' to ' + KIND[sel.kind].name.toLowerCase() + ' ' + to, 'good');
+      }
+    } else {
+      if (!box || !L[box]) return toast('Tap the box first', 'bad');
+      var veh = $('vehInput') ? vehicleFrom($('vehInput').value) : '';
+      if (mode === 'OUT' && !veh) { $('vehInput').focus(); return toast('Scan or type the scooter / bike ID', 'bad'); }
+      if ((mode === 'OUT' || mode === 'SCRAP') && L[box].type === 'TOTE') return toast(box + ' is a white box. Use More → Move to put stock into a blue bin first.', 'bad');
+      item = { id: uid(), type: mode, loc: box, sku: p.sku, qty: qty, vehicle: veh, note: $('noteInput') ? $('noteInput').value.trim() : '', device: cfg.device };
+      var verb = { OUT: '−', RETURN: '+', SCRAP: '✕ −' }[mode];
+      enqueue('move', item, verb + qty + ' ' + p.name);
+      toast(verb + qty + ' ' + p.name + ' · ' + box + ' now ' + num(L[box].qty), 'good');
+      var nowLoc = L[box];
+      if (nowLoc.type === 'BIN' && num(nowLoc.min) > 0 && num(nowLoc.qty) <= num(nowLoc.min) && mode !== 'RETURN') {
+        var totes = (BY[p.sku] || []).filter(function (l) { return l.type === 'TOTE' && num(l.qty) > 0; });
+        setTimeout(function () { toast('Low stock in blue bin ' + box + ' (' + num(nowLoc.qty) + ' left). ' + (totes.length ? 'Refill it from white box ' + totes[0].loc + ' (More → Move).' : 'Reorder.'), 'bad'); }, 1800);
+      }
+    }
+    closeModal(); sel = null; renderAll();
+  }
 
   /* ---------------- RESTOCK ---------------- */
   var rsMode = 'open', rs = null;
   qsa('#restockSeg button').forEach(function (b) {
     b.onclick = function () {
       rsMode = b.dataset.rs; qsa('#restockSeg button').forEach(function (x) { x.classList.toggle('on', x === b); });
-      $('restockHint').textContent = rsMode === 'open' ? 'Scan the clear top tote. Its stock moves into the blue picking bin.' : 'Count the parts, put them in the tote, tape it shut, then scan the tote label and enter the count.';
+      $('restockHint').textContent = rsMode === 'open' ? 'Scan the white box. Its stock moves into the blue bin.' : 'Count the parts, put them in the white box, close it, then scan its label and enter the count.';
       rs = null; renderRestock();
     };
   });
@@ -1014,7 +1159,67 @@
     if (!p.name) return toast('Enter the part name', 'bad');
     api('savePart', p).then(function () { toast('Saved ' + p.sku, 'good'); return refresh(); }).catch(function (e) { toast(e.message, 'bad'); });
   };
-  $('demoReset').onclick = function () { localStorage.removeItem('inv.demo'); demo = null; queue = []; saveQueue(); refresh(); toast('Demo data reset', 'good'); };
+  /* --- Part photos: read the catalogue file in this browser, shrink each photo, save to the Photos tab --- */
+  function jsonAfter(text, marker) {
+    var i = text.indexOf(marker); if (i < 0) return null;
+    i = text.indexOf('{', i); var depth = 0, str = false, q = '', esc2 = false;
+    for (var j = i; j < text.length; j++) {
+      var c = text[j];
+      if (str) { if (esc2) esc2 = false; else if (c === '\\') esc2 = true; else if (c === q) str = false; continue; }
+      if (c === '"' || c === "'") { str = true; q = c; } else if (c === '{') depth++; else if (c === '}') { if (--depth === 0) return JSON.parse(text.slice(i, j + 1)); }
+    }
+    return null;
+  }
+  function shrink(dataUrl, max, quality) {
+    return new Promise(function (ok) {
+      var img = new Image();
+      img.onload = function () {
+        var s = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+        ok(c.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = function () { ok(null); };
+      img.src = dataUrl;
+    });
+  }
+  $('photoGo').onclick = function () {
+    var f = $('photoFile').files[0], out = $('photoOut');
+    if (!f) return toast('Choose the catalogue file first', 'bad');
+    $('photoGo').disabled = true; out.textContent = 'Reading the file…';
+    f.text().then(function (text) {
+      var data = jsonAfter(text, 'const DATA ='), thumbs = jsonAfter(text, 'const THUMBS =');
+      if (!data || !thumbs || !data.parts) throw new Error('This is not the spare parts catalogue file');
+      var want = {}; snap.parts.forEach(function (p) { if (p.photo_id) want[p.photo_id] = 1; });
+      var pick = {};
+      data.parts.forEach(function (cp) {
+        var code = String(cp.sku || '').trim();
+        if (!code || code === '#N/A' || code === 'Not found') code = ((/^img\d*\/(.+?) - /.exec(cp.id || '') || [])[1] || '').trim();
+        if (!code || !want[code] || pick[code]) return;
+        var src = [cp.id].concat(cp.alts || []).filter(function (k) { return k && thumbs[k]; })[0];
+        if (src) pick[code] = thumbs[src];
+      });
+      var ids = Object.keys(pick), done = 0, saved = 0;
+      if (!ids.length) throw new Error('No photos in the file match the parts list');
+      var next = function () {
+        if (done >= ids.length) {
+          out.textContent = saved + ' photos saved. Phones show them the next time a part is opened.';
+          photoMem = {}; qsa('[data-photo]').forEach(function (el) { delete el.dataset.state; }); renderAll();
+          $('photoGo').disabled = false; return;
+        }
+        var batch = ids.slice(done, done + 12);
+        Promise.all(batch.map(function (id) { return shrink(pick[id], 360, .72).then(function (d) { return d && d.length < 49000 ? { id: id, data: d } : shrink(pick[id], 240, .6).then(function (d2) { return d2 ? { id: id, data: d2 } : null; }); }); }))
+          .then(function (items) { return api('savePhotos', { items: items.filter(Boolean) }); })
+          .then(function (r) {
+            saved += r.saved; done += batch.length;
+            out.textContent = 'Saving photos… ' + done + ' of ' + ids.length;
+            next();
+          }).catch(function (e) { out.textContent = 'Stopped after ' + saved + ' photos: ' + e.message + '. Tap Load photos again to continue.'; $('photoGo').disabled = false; });
+      };
+      out.textContent = ids.length + ' photos found. Saving…'; next();
+    }).catch(function (e) { out.textContent = e.message; $('photoGo').disabled = false; });
+  };
+  $('demoReset').onclick = function () { delete memStore['inv.demo']; try { localStorage.removeItem('inv.demo'); } catch (e) {} demo = null; queue = []; saveQueue(); refresh(); toast('Demo data reset', 'good'); };
 
   /* ---------------- sign-in ---------------- */
   function showSignIn(msg) {
@@ -1094,13 +1299,8 @@
   /* ---------------- start ---------------- */
   var handlers = { scanInput: scanTake, restockInput: scanRestock, countInput: scanCount };
   onEnter('scanInput', scanTake);
-  $('scanFind').onclick = function () { var v = $('scanInput').value; $('scanInput').value = ''; if (v.trim()) scanTake(v); else $('scanInput').focus(); };
-  // picking a suggestion from the list opens the part straight away
-  $('scanInput').addEventListener('input', function (e) {
-    var v = this.value.trim().toUpperCase();
-    if (e.inputType === 'insertReplacementText' || (e.inputType === undefined && P[v])) { this.value = ''; scanTake(v); }
-  }); onEnter('restockInput', scanRestock); onEnter('countInput', scanCount);
-  $('takeVehicle').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); this.value = vehicleFrom(this.value); $('takeGo').focus(); } });
+  onEnter('restockInput', scanRestock);
+  onEnter('countInput', scanCount);
 
   document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
   window.addEventListener('online', function () { online = true; flush(); });
@@ -1111,7 +1311,7 @@
     navigator.serviceWorker.register('sw.js').then(function (reg) { reg.update(); }).catch(function () {});
     // a new version took over: reload once so the screens match it (pending actions are safe in the queue)
     navigator.serviceWorker.addEventListener('controllerchange', function () {
-      if (hadSw && !sessionStorage.getItem('inv.reloaded')) { sessionStorage.setItem('inv.reloaded', '1'); location.reload(); }
+      try { if (hadSw && !sessionStorage.getItem('inv.reloaded')) { sessionStorage.setItem('inv.reloaded', '1'); location.reload(); } } catch (e) {}
     });
   }
 

@@ -22,7 +22,7 @@
 </header>
 
 <nav class="tabs" id="tabs">
-  <button data-tab="take" class="on"><span>⇩</span><b>Take</b></button>
+  <button data-tab="take" class="on"><span>▦</span><b>Parts</b></button>
   <button data-tab="restock"><span>⇪</span>Restock</button>
   <button data-tab="stock"><span>☰</span>Stock</button>
   <button data-tab="count"><span>✓</span>Count</button>
@@ -33,47 +33,26 @@
 <main>
   <!-- TAKE / POS -->
   <section id="tab-take" class="tab on">
-    <div class="acts" id="actionSeg">
-      <button data-act="OUT" class="on"><span class="ai">⇩</span>Take out</button>
-      <button data-act="RETURN"><span class="ai">↩</span>Return</button>
-      <button data-act="SCRAP"><span class="ai">✕</span>Damaged</button>
-      <button data-act="RECEIVE"><span class="ai">⇧</span>Receive</button>
+    <div class="findbar">
+      <label class="search"><span aria-hidden="true">🔍</span><input id="scanInput" type="search" placeholder="Search part, SKU, NetSuite no. or model…" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Search parts"></label>
+      <button class="scanbtn" type="button" data-cam="scanInput"><span>📷</span> Scan</button>
     </div>
-    <button class="scanbig" type="button" data-cam="scanInput"><span>📷</span> Scan bin label</button>
-    <label class="lbl" for="scanInput">Or type the SKU, part name or bin</label>
-    <div class="scanrow">
-      <input id="scanInput" class="scan" list="skuList" placeholder="e.g. OK4-ELC-CTRL or fender" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search">
-      <button id="scanFind" class="find" type="button">Find</button>
-    </div>
-    <div id="takeCard" class="card hidden"></div>
-    <div id="takeForm" class="hidden">
-      <label class="lbl">Quantity</label>
-      <div class="stepper">
-        <button data-step="-1">−</button><input id="takeQty" type="number" inputmode="numeric" min="1" value="1"><button data-step="1">+</button>
-      </div>
-      <div id="whoRow">
-        <label class="lbl">Scooter / bike ID</label>
-        <div class="scanrow">
-          <input id="takeVehicle" placeholder="Scan vehicle QR or type ID" autocomplete="off" autocapitalize="characters">
-          <button class="cam" data-cam="takeVehicle" title="Scan vehicle QR">📷</button>
-        </div>
-      </div>
-      <label class="lbl">Note (optional)</label>
-      <input id="takeNote" placeholder="e.g. fender cracked in transit">
-      <p class="hint" id="takeWho"></p>
-      <button id="takeGo" class="big go">Confirm</button>
-    </div>
-    <h3 class="sub">This device, today</h3>
-    <div id="recent" class="list"></div>
+    <p class="secthead">Models</p>
+    <div id="modelCards" class="models"></div>
+    <div class="gridhead"><p class="secthead"><span id="gridTitle">All parts</span> <small id="gridCount"></small></p>
+      <label class="tog"><input type="checkbox" id="inStockOnly"> In stock only</label></div>
+    <div id="partGrid" class="pgrid"></div>
+    <button id="gridMore" class="big hidden" type="button">Show more</button>
+    <details class="today"><summary>Today on this phone <b id="todayN"></b></summary><div id="recent" class="list"></div></details>
   </section>
 
   <!-- RESTOCK -->
   <section id="tab-restock" class="tab">
     <div class="seg" id="restockSeg">
-      <button data-rs="open" class="on">Break seal → bin</button>
-      <button data-rs="seal">Seal a tote</button>
+      <button data-rs="open" class="on">White box → blue bin</button>
+      <button data-rs="seal">Fill a white box</button>
     </div>
-    <p class="hint" id="restockHint">Scan the clear top tote. Its stock moves into the blue picking bin.</p>
+    <p class="hint" id="restockHint">Scan the white box. Its stock moves into the blue bin.</p>
     <div class="scanrow">
       <input id="restockInput" class="scan" placeholder="Scan tote label (T-0001)" autocomplete="off" autocapitalize="characters">
       <button class="cam" data-cam="restockInput">📷</button>
@@ -135,7 +114,7 @@
   <section id="tab-labels" class="tab">
     <div class="seg" id="labelSeg">
       <button data-lb="BIN" class="on">Bin labels</button>
-      <button data-lb="TOTE">Tote seal labels</button>
+      <button data-lb="TOTE">White box labels</button>
     </div>
     <div class="filters">
       <input id="labelSearch" placeholder="Filter: rack (R1), model (OK4), SKU, name" autocomplete="off">
@@ -180,6 +159,13 @@
       <input id="staffPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8">
       <button id="staffAdd" class="big">Add person</button>
       <div id="staffList" class="list compact" style="margin-top:12px"></div>
+    </div>
+    <div class="panel sup-only">
+      <h3>Part photos</h3>
+      <p class="hint">Load the photos from your <b>Spare Parts Catalogue Preview.html</b> file once (on the laptop). They are made small and saved in the Photos tab of your Google Sheet, so every phone can show them. You can run it again any time.</p>
+      <input id="photoFile" type="file" accept=".html,.htm,text/html">
+      <button id="photoGo" class="big" type="button">Load photos</button>
+      <div id="photoOut" class="hint"></div>
     </div>
     <div class="panel sup-only">
       <h3>Add / edit a bin or tote</h3>
