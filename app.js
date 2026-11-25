@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.3 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.4 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -97,7 +97,7 @@
     var rack = { OK4: 1, NB3: 2, NB2: 3, UNI: 4 }, perRack = {}, tote = 1, stamp = new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10);
     (window.DEMO_PARTS || []).forEach(function (p, i) {
       t.Parts.push({ sku: p.sku, name: p.name, model: p.model, system: p.system, abc: p.abc, ns_sku: p.ns_sku, tier_code: p.tier_code, fits: p.fits, unit: 'pcs', notes: p.notes || '',
-        price_eur: p.price_eur == null ? '' : String(p.price_eur), weight_g: p.weight_g == null ? '' : String(p.weight_g), photo_id: p.photo_id || '' });
+        price_eur: p.price_eur == null ? '' : String(p.price_eur), weight_g: p.weight_g == null ? '' : String(p.weight_g), photo_id: p.photo_id || '', hs_code: p.hs_code || '' });
       var j = perRack[p.model] = (perRack[p.model] || 0) + 1;
       var loc = 'R' + rack[p.model] + '-S' + (1 + Math.floor((j - 1) / 6)) + '-B' + ('0' + (((j - 1) % 6) + 1)).slice(-2);
       var qty = p.abc === 'C' ? 40 + (i * 37) % 160 : (i * 7) % 18;
@@ -614,6 +614,7 @@
         (p.photo_id ? '<span class="pc-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></span>' : '<span class="pc-ph none"><i>No photo yet</i></span>') +
         '<span class="pc-b"><span class="pc-code">' + esc(codeOf(p)) + '</span><span class="pc-n">' + esc(p.name) + '</span>' +
         '<span class="pc-m"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + '</span>' +
+        '<span class="pc-pw">' + [price(p) == null ? '' : '€ ' + price(p).toFixed(2), num(p.weight_g) > 0 ? esc(p.weight_g) + ' g' : ''].filter(Boolean).join(' · ') + '</span>' +
         '<span class="pc-s' + (st.total > 0 ? (st.low ? ' low' : ' ok') : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in ' + esc(st.locs.length === 1 ? st.locs[0].loc : st.locs.length + ' boxes') : 'Not in stock') + '</span></span></button>';
     }).join('') : '<p class="hint">No parts found. Check the SKU, or try part of the name.</p>';
     $('gridMore').classList.toggle('hidden', list.length <= gridLimit);
@@ -684,7 +685,11 @@
       (p.photo_id ? '<div class="pd-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></div>' : '<div class="pd-ph none"><i>No photo yet</i></div>') +
       '<div class="pd-info"><span class="mtag m-' + esc(p.model) + '"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + esc((MODELS[p.model] || {}).name || '') + '</span>' +
       '<h3>' + esc(p.name) + '</h3><div class="pd-sku">SKU <b class="mono">' + esc(codeOf(p)) + '</b></div>' +
-      '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : 'Not in stock yet') + '</div></div></div>';
+      '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : 'Not in stock yet') + '</div></div></div>' +
+      '<div class="pd-facts"><div><small>Price</small><b>' + (price(p) == null ? '—' : '€ ' + price(p).toFixed(2)) + '</b>' + (price(p) == null ? '' : '<small>AED ' + (price(p) * AED_PER_EUR).toFixed(2) + '</small>') + '</div>' +
+      '<div><small>Weight</small><b>' + (num(p.weight_g) > 0 ? esc(p.weight_g) + ' g' : '—') + '</b></div>' +
+      '<div><small>HS code</small><b class="mono">' + (p.hs_code ? esc(p.hs_code) : '—') + '</b></div></div>' +
+      (p.notes && !/^Catalogue code /.test(p.notes) ? '<p class="hint">' + esc(p.notes.replace(/ · Catalogue code \S+$/, '')) + '</p>' : '');
     if (!mode) {
       h += (st.locs.length ? '<label class="lbl">Where it is</label>' + boxChips(st) : '') +
         '<div class="bigacts"><button type="button" class="big go" id="doOut">− Take out</button><button type="button" class="big ok" id="doAdd">+ Add stock</button></div>' +

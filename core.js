@@ -6,7 +6,7 @@
  * the Movements log.  Nothing changes a quantity without a log line.
  */
 var TABLES = {
-  Parts:     ['sku', 'name', 'model', 'system', 'abc', 'ns_sku', 'tier_code', 'fits', 'unit', 'notes', 'price_eur', 'weight_g', 'photo_id'],
+  Parts:     ['sku', 'name', 'model', 'system', 'abc', 'ns_sku', 'tier_code', 'fits', 'unit', 'notes', 'price_eur', 'weight_g', 'photo_id', 'hs_code'],
   Locations: ['loc', 'type', 'sku', 'qty', 'min', 'sealed_date', 'last_count', 'notes'],
   Movements: ['id', 'ts', 'type', 'sku', 'from_loc', 'to_loc', 'qty', 'mechanic', 'vehicle', 'note', 'device'],
   Counts:    ['id', 'ts', 'loc', 'sku', 'expected', 'counted', 'variance', 'counter', 'status', 'resolved_by', 'resolved_ts'],
@@ -235,7 +235,7 @@ Core.prototype.savePart = function (p, who) {
   if (ex && who && who.role !== 'supervisor') fail_(p.sku + ' already exists. Only a supervisor can change an existing part.', { code: 'ROLE' });
   if (ex) {
     var patch = {};
-    ['name', 'abc', 'ns_sku', 'notes', 'price_eur', 'weight_g', 'photo_id'].forEach(function (k) { if (p[k] !== undefined) patch[k] = p[k]; });
+    ['name', 'abc', 'ns_sku', 'notes', 'price_eur', 'weight_g', 'photo_id', 'hs_code'].forEach(function (k) { if (p[k] !== undefined) patch[k] = p[k]; });
     this.s.update('Parts', ex, patch);
   } else {
     if (!p.name) fail_('Enter the part name');
