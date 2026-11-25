@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.2 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.3 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -71,7 +71,8 @@
   /* demo storage: same interface as the Google Sheet store in Code.gs */
   function DemoStore() {
     this.d = load('inv.demo', null);
-    if (!this.d) { this.d = demoData(); this.persist(); }
+    // sample parts changed in a new app version: start the demo again with the new ones
+    if (!this.d || this.d.sig !== demoSig()) { this.d = demoData(); this.persist(); }
     if (!this.d.t.Staff.length || this.d.t.Staff[0].role === undefined) { this.d.t.Staff = DEMO_STAFF.map(function (r) { return Object.assign({}, r); }); this.persist(); }
   }
   DemoStore.prototype.persist = function () { save('inv.demo', this.d); };
@@ -90,6 +91,7 @@
     { name: 'Supervisor', pin_hash: '550d30d3f03371426753e0bb8e37d72f54227fb8de59a65ada78d114bdfc08ce', role: 'supervisor', active: 'yes' }
   ];
 
+  function demoSig() { return (window.DEMO_PARTS || []).map(function (p) { return p.sku + ':' + (p.ns_sku || ''); }).join('|').length + '-' + (window.DEMO_PARTS || []).length + '-' + ((window.DEMO_PARTS || [])[0] || {}).ns_sku; }
   function demoData() {
     var t = { Parts: [], Locations: [], Movements: [], Counts: [], Staff: DEMO_STAFF.map(function (r) { return Object.assign({}, r); }) };
     var rack = { OK4: 1, NB3: 2, NB2: 3, UNI: 4 }, perRack = {}, tote = 1, stamp = new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10);
@@ -104,7 +106,7 @@
         t.Locations.push({ loc: 'T-' + ('000' + tote++).slice(-4), type: 'TOTE', sku: p.sku, qty: '20', min: '0', sealed_date: stamp, last_count: stamp, notes: 'Above rack R' + rack[p.model] });
       }
     });
-    return { t: t, v: 1 };
+    return { t: t, v: 1, sig: demoSig() };
   }
 
   var demo = null;
