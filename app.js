@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.16 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.17 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -359,7 +359,7 @@
   /* ---------------- tabs ---------------- */
   var current = 'take';
   /** Mechanics get Parts and Settings. */
-  function tabAllowed(t) { return isSup() || t === 'take' || t === 'setup'; }
+  function tabAllowed(t) { return isSup() || t === 'take' || t === 'boxes' || t === 'setup'; }
   var tabTrail = [];   // tabs visited before this one, for the phone's Back button
   function showTab(t, fromBack) {
     if (!tabAllowed(t)) t = 'take';
@@ -380,6 +380,7 @@
     if (current === 'stock') renderStock();
     if (current === 'count') renderCount();
     if (current === 'labels') renderLabels();
+    if (current === 'boxes') renderBoxes();
     if (current === 'setup') renderSetup();
     fillPhotos();
   }
@@ -1152,6 +1153,65 @@
       }).join('') + '</tbody>' + (rows.length > show.length ? '<tfoot><tr><td colspan="9" class="hint">Showing 400 of ' + rows.length + '. Search to narrow down.</td></tr></tfoot>' : '');
     qsa('#stockTable tbody tr').forEach(function (tr) { tr.onclick = function () { partDetail(tr.dataset.sku); }; });
   }
+  /* ---------------- BOXES: what is inside every blue bin and white box ----------------
+   * One card per box: code, kind, model colour, total pieces, and each part inside (name, SKU, pieces).
+   * Tap a part to open it; tap the QR to see the box's sticker. */
+  var boxKind = '', boxModel = '', boxLimit = 60;
+  function boxModelOf(k, rows) {
+    var m = /^(A200|C1|OK|UNI)-/.exec(k); if (m) return { A200: 'NB2', C1: 'NB3', OK: 'OK4', UNI: 'UNI' }[m[1]];
+    var ms = {}; rows.forEach(function (l) { ms[P[l.sku].model] = 1; }); var keys = Object.keys(ms);
+    return keys.length === 1 ? keys[0] : 'UNI';
+  }
+  function renderBoxes() {
+    $('boxKindChips').innerHTML = [['', 'All boxes'], ['BIN', 'Blue bins'], ['TOTE', 'White boxes']].map(function (x) {
+      return '<button class="chip' + (boxKind === x[0] ? ' on' : '') + '" data-bk="' + x[0] + '">' + x[1] + '</button>'; }).join('');
+    $('boxModelChips').innerHTML = [['', 'All models']].concat(PACK_MODELS).map(function (x) {
+      return '<button class="chip' + (boxModel === x[0] ? ' on' : '') + '" data-bm="' + x[0] + '">' + (x[0] ? '<i class="sw-' + x[0] + '"></i>' : '') + x[1] + '</button>'; }).join('');
+    qsa('#boxKindChips [data-bk]').forEach(function (b) { b.onclick = function () { boxKind = b.dataset.bk; boxLimit = 60; renderBoxes(); }; });
+    qsa('#boxModelChips [data-bm]').forEach(function (b) { b.onclick = function () { boxModel = b.dataset.bm; boxLimit = 60; renderBoxes(); }; });
+    var q = $('boxSearch').value.trim().toLowerCase(), words = q ? q.split(/\s+/) : [], empties = $('boxEmptyToo').checked;
+    var boxes = Object.keys(BOXES).map(function (k) {
+      var rows = inBox(k), first = BOXES[k][0];
+      return { loc: k, type: first.type, rows: rows, model: boxModelOf(k, rows), total: rows.reduce(function (a, l) { return a + num(l.qty); }, 0) };
+    }).filter(function (b) {
+      if (!b.rows.length) return false;
+      if (!empties && b.total <= 0) return false;
+      if (boxKind && b.type !== boxKind) return false;
+      if (boxModel && b.model !== boxModel) return false;
+      if (words.length) {
+        var hay = (b.loc + ' ' + b.rows.map(function (l) { var p = P[l.sku]; return p.name + ' ' + p.sku + ' ' + (p.ns_sku || '') + ' ' + codeOf(p); }).join(' ')).toLowerCase();
+        if (!words.every(function (w) { return hay.indexOf(w) >= 0; })) return false;
+      }
+      return true;
+    }).sort(function (a, b) { return a.loc.localeCompare(b.loc, undefined, { numeric: true }); });
+    var units = boxes.reduce(function (a, b) { return a + b.total; }, 0), mixed = boxes.filter(function (b) { return b.rows.length > 1; }).length;
+    $('boxSummary').innerHTML = '<div class="fact"><small>Boxes</small><b>' + boxes.length + '</b></div>' +
+      '<div class="fact"><small>Blue bins · white boxes</small><b>' + boxes.filter(function (b) { return b.type === 'BIN'; }).length + ' · ' + boxes.filter(function (b) { return b.type === 'TOTE'; }).length + '</b></div>' +
+      '<div class="fact"><small>Mixed boxes</small><b>' + mixed + '</b></div>' +
+      '<div class="fact"><small>Pieces in them</small><b>' + units.toLocaleString() + '</b></div>';
+    var show = boxes.slice(0, boxLimit);
+    $('boxList').innerHTML = show.length ? show.map(function (b) {
+      return '<div class="boxcard m-' + esc(b.model) + '"><div class="bh"><span class="lqrp" data-qr="' + esc(b.loc) + '" title="See the sticker"></span>' +
+        '<div><div class="code">' + esc(b.loc) + '</div><div class="meta">' + KIND[b.type === 'TOTE' ? 'TOTE' : 'BIN'].name + ' · ' + esc(MODEL_TAG[b.model] || b.model) + (b.rows.length > 1 ? ' · mixed, ' + b.rows.length + ' parts' : '') + '</div></div>' +
+        '<div class="tot">' + b.total + '<small>pieces</small></div></div><div class="rows">' +
+        b.rows.map(function (l) {
+          var p = P[l.sku], n = num(l.qty);
+          return '<button type="button" class="brow" data-sku="' + esc(l.sku) + '" data-loc="' + esc(b.loc) + '"><span class="nm"><b>' + esc(p.name) + '</b><small>' + esc(codeOf(p)) + '</small></span>' +
+            '<span class="q' + (n <= 0 ? ' zero' : '') + '">' + n + '<small>pcs</small></span></button>';
+        }).join('') + '</div></div>';
+    }).join('') : '<p class="hint">No boxes match.' + (empties ? '' : ' Empty boxes are hidden; tick "Show empty boxes" to see them.') + '</p>';
+    $('boxMore').style.display = boxes.length > show.length ? '' : 'none';
+    $('boxMore').textContent = 'Show more boxes (' + (boxes.length - show.length) + ' more)';
+    qsa('#boxList .brow').forEach(function (b) { b.onclick = function () { openPart(b.dataset.sku, b.dataset.loc); }; });
+    var qrs = qsa('#boxList [data-qr]');
+    if (qrs.length) withQr().then(function () {
+      qrs.forEach(function (el) { if (!el.innerHTML) el.innerHTML = qrSvg(el.dataset.qr); el.onclick = function (e) { e.stopPropagation(); previewOne(el.dataset.qr); }; });
+    });
+  }
+  $('boxSearch').addEventListener('input', function () { boxLimit = 60; renderBoxes(); });
+  $('boxEmptyToo').addEventListener('change', renderBoxes);
+  $('boxMore').onclick = function () { boxLimit += 60; renderBoxes(); };
+
   /* ---------------- STOCK REPORT (year-end) ----------------
    * Every part that has stock (all bins and boxes together, above 0), all models, whatever the filters on screen.
    * CSV for Excel, PDF through the print window ("Save as PDF"). */

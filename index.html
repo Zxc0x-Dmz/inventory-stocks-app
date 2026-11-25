@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Stocks">
-<link rel="stylesheet" href="style.css?v=2.16">
+<link rel="stylesheet" href="style.css?v=2.17">
 </head>
 <body>
 <header class="top">
@@ -23,6 +23,7 @@
 
 <nav class="tabs" id="tabs">
   <button data-tab="take" class="on"><span>▦</span><b>Parts</b></button>
+  <button data-tab="boxes"><span>▣</span>Boxes</button>
   <button data-tab="restock"><span>⇪</span>Restock</button>
   <button data-tab="stock"><span>☰</span>Stock</button>
   <button data-tab="count"><span>✓</span>Count</button>
@@ -31,6 +32,19 @@
 </nav>
 
 <main>
+  <!-- BOXES: what is inside every blue bin and white box -->
+  <section id="tab-boxes" class="tab">
+    <div class="filters">
+      <input id="boxSearch" type="search" placeholder="Search box code, part name or SKU" autocomplete="off">
+      <div class="chips" id="boxKindChips"></div>
+      <div class="chips" id="boxModelChips"></div>
+      <label class="tog"><input type="checkbox" id="boxEmptyToo"> Show empty boxes</label>
+    </div>
+    <div id="boxSummary" class="summary"></div>
+    <div id="boxList" class="boxcards"></div>
+    <button type="button" class="big" id="boxMore" style="display:none">Show more boxes</button>
+  </section>
+
   <!-- TAKE / POS -->
   <section id="tab-take" class="tab on">
     <div class="findbar">
@@ -260,8 +274,8 @@
 <div id="toast" class="toast hidden"></div>
 <div id="printArea"></div>
 
-<script src="core.js?v=2.16"></script>
-<script src="demo-seed.js?v=2.16"></script>
-<script src="app.js?v=2.16"></script>
+<script src="core.js?v=2.17"></script>
+<script src="demo-seed.js?v=2.17"></script>
+<script src="app.js?v=2.17"></script>
 </body>
 </html>
