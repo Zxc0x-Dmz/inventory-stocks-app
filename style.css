@@ -158,6 +158,36 @@ td.mono { white-space: nowrap; }
 .photoBig img { max-width: 94vw; max-height: 90vh; background: #fff; border-radius: 10px; }
 .summary .fact small + b + small { display: block; color: var(--mute); }
 
+/* take screen: four big action buttons + one big scan button */
+.acts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.acts button { border: 2px solid var(--line); background: #fff; border-radius: var(--r); padding: 10px 4px; font-weight: 700; font-size: 15px; color: var(--ink); display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 64px; }
+.acts .ai { font-size: 22px; line-height: 1; }
+.acts button[data-act="OUT"] .ai { color: var(--accent); }
+.acts button[data-act="RETURN"] .ai, .acts button[data-act="RECEIVE"] .ai { color: var(--good); }
+.acts button[data-act="SCRAP"] .ai { color: var(--bad); }
+.acts button.on .ai { color: #fff; }
+.acts button[data-act="OUT"].on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.acts button[data-act="SCRAP"].on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.acts button[data-act="RETURN"].on, .acts button[data-act="RECEIVE"].on { background: var(--good); border-color: var(--good); color: #fff; }
+@media (max-width: 560px) { .acts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .acts button { flex-direction: row; justify-content: center; gap: 8px; font-size: 17px; min-height: 58px; } }
+.scanbig { width: 100%; border: 0; border-radius: var(--r); background: var(--top); color: #fff; font-weight: 800; font-size: 19px; padding: 16px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 64px; }
+.scanbig span { font-size: 24px; }
+.find { flex: none; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; font-size: 16px; padding: 0 18px; min-width: 76px; }
+.pick { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
+.pick .grow { flex: 1; min-width: 0; }
+.pick .t2 { font-size: 12.5px; color: var(--mute); }
+.tabs b { font-weight: inherit; }
+
+/* mechanics: only Scan and Settings; on a phone the two tabs sit at the bottom like an app */
+body:not(.sup) #tabs button:not([data-tab="take"]):not([data-tab="setup"]) { display: none; }
+@media (max-width: 700px) {
+  body:not(.sup) .tabs { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 30; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: 0 -2px 10px rgba(0,0,0,.06); }
+  body:not(.sup) .tabs button { padding: 10px 4px 9px; font-size: 13px; border-bottom: 0; border-top: 3px solid transparent; }
+  body:not(.sup) .tabs button.on { border-top-color: var(--accent); }
+  body:not(.sup) main { padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
+  body:not(.sup) .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+}
+
 /* sign-in and roles */
 body:not(.sup) .sup-only { display: none !important; }
 body.sup .sup-hide { display: none !important; }

@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '1.2 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '1.3 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -285,11 +285,17 @@
     el.className = 'status ' + cls; $('statusText').textContent = txt;
     $('meBtn').textContent = signedIn() ? '👤 ' + cfg.user + (isSup() ? ' ★' : '') : '👤 Sign in';
     document.body.classList.toggle('sup', isSup());
+    var tl = $('tabs').querySelector('[data-tab="take"] b'), sl = $('tabs').querySelector('[data-tab="setup"] b');
+    tl.textContent = isSup() ? 'Take' : 'Scan'; sl.textContent = isSup() ? 'Setup' : 'Settings';
+    if (!tabAllowed(current)) showTab('take');
   }
 
   /* ---------------- tabs ---------------- */
   var current = 'take';
+  /** Mechanics only get Scan (the take screen) and Settings. */
+  function tabAllowed(t) { return isSup() || t === 'take' || t === 'setup'; }
   function showTab(t) {
+    if (!tabAllowed(t)) t = 'take';
     current = t;
     qsa('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
     qsa('.tab').forEach(function (s) { s.classList.toggle('on', s.id === 'tab-' + t); });
@@ -352,7 +358,7 @@
     wedgeT = now;
     if (e.key === 'Enter') {
       if (wedge.length >= 3) {
-        var target = { take: 'scanInput', restock: 'restockInput', count: 'countInput' }[current];
+        var target = tabAllowed(current) ? { take: 'scanInput', restock: 'restockInput', count: 'countInput' }[current] : null;
         if (!target) { showTab('take'); target = 'scanInput'; }
         handlers[target](wedge);
       }
@@ -500,9 +506,35 @@
     qsa('button', s).forEach(function (b) { b.onclick = function () { inp.value = Math.max(1, num(inp.value) + num(b.dataset.step)); }; });
   });
 
+  /** Typed text that is not an exact SKU / bin: search SKUs, names and NetSuite numbers. */
+  function findParts(text) {
+    var q = String(text || '').trim().toLowerCase();
+    if (q.length < 2) return [];
+    var words = q.split(/\s+/);
+    return snap.parts.filter(function (p) {
+      var hay = (p.sku + ' ' + p.name + ' ' + (p.ns_sku || '') + ' ' + (p.notes || '')).toLowerCase();
+      return words.every(function (w) { return hay.indexOf(w) >= 0; });
+    }).sort(function (a, b) { return ((BY[b.sku] || []).length > 0) - ((BY[a.sku] || []).length > 0) || a.sku.localeCompare(b.sku); });
+  }
+  function pickPart(list, text) {
+    beep(true);
+    modal('<h3>' + list.length + ' parts match "' + esc(text) + '"</h3><p class="hint">Tap the part you have.</p>' +
+      list.slice(0, 15).map(function (p) {
+        var bins = (BY[p.sku] || []).filter(function (l) { return l.type === 'BIN'; });
+        return '<button class="pick" data-x="' + esc(p.sku) + '"><span class="swatch sw-' + esc(p.model) + '"></span><span class="grow"><b>' + esc(p.name) + '</b>' +
+          '<span class="t2" style="display:block">' + esc(p.sku) + ' · ' + (bins.length ? bins.map(function (l) { return esc(l.loc) + ' (' + num(l.qty) + ')'; }).join(', ') : 'no bin yet') + '</span></span></button>';
+      }).join('') + (list.length > 15 ? '<p class="hint">Showing 15 of ' + list.length + '. Type more of the name.</p>' : '') +
+      '<div class="btns"><button class="big" data-x="cancel">Cancel</button></div>',
+      function (x) { if (x !== 'cancel' && P[x]) scanTake(x); });
+  }
   function scanTake(code) {
     var r = resolve(code);
-    if (!r) { beep(false); toast('Not found: ' + code + '. Is the label set up?', 'bad'); take = null; renderTake(); return; }
+    if (!r) {
+      var hits = findParts(code);
+      if (hits.length === 1) r = { sku: hits[0].sku };
+      else if (hits.length > 1) { take = null; renderTake(); return pickPart(hits, code); }
+    }
+    if (!r) { beep(false); toast('Not found: ' + code + '. Check the SKU, or scan the bin label.', 'bad'); take = null; renderTake(); return; }
     var loc = r.loc;
     if (!loc) {
       var bins = (BY[r.sku] || []).filter(function (l) { return l.type === 'BIN'; });
@@ -1061,7 +1093,13 @@
 
   /* ---------------- start ---------------- */
   var handlers = { scanInput: scanTake, restockInput: scanRestock, countInput: scanCount };
-  onEnter('scanInput', scanTake); onEnter('restockInput', scanRestock); onEnter('countInput', scanCount);
+  onEnter('scanInput', scanTake);
+  $('scanFind').onclick = function () { var v = $('scanInput').value; $('scanInput').value = ''; if (v.trim()) scanTake(v); else $('scanInput').focus(); };
+  // picking a suggestion from the list opens the part straight away
+  $('scanInput').addEventListener('input', function (e) {
+    var v = this.value.trim().toUpperCase();
+    if (e.inputType === 'insertReplacementText' || (e.inputType === undefined && P[v])) { this.value = ''; scanTake(v); }
+  }); onEnter('restockInput', scanRestock); onEnter('countInput', scanCount);
   $('takeVehicle').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); this.value = vehicleFrom(this.value); $('takeGo').focus(); } });
 
   document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
