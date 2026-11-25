@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.0 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.1 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1349,6 +1349,35 @@
       });
     }
   } catch (e) {}   // some embedded pages do not allow offline storage; the app still works online
+
+  /* ---------- updates: the website publishes version.json; a phone with an older copy updates itself ---------- */
+  var updating = false;
+  function forceUpdate(why) {
+    if (updating) return; updating = true;
+    toast(why || 'Updating to the new version…', 'good');
+    var jobs = [];
+    try { if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); })); } catch (e) {}
+    try { if (window.caches) jobs.push(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return /^stocks-v\d+$/.test(k); }).map(function (k) { return caches.delete(k); })); })); } catch (e) {}
+    Promise.all(jobs).catch(function () {}).then(function () { setTimeout(function () { location.reload(); }, 600); });   // waiting actions stay in the queue
+  }
+  var lastUpdateCheck = 0;
+  function checkForUpdate(manual) {
+    if (EMBED || window.PREVIEW_ONLY || !/^https?:/.test(location.protocol)) { if (manual) toast('This copy updates with the Apps Script deployment.', 'good'); return; }
+    if (!manual && Date.now() - lastUpdateCheck < 10 * 60000) return;
+    lastUpdateCheck = Date.now();
+    fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (v) {
+      if (!v || !v.version) { if (manual) toast('Could not check for updates. Try again with internet.', 'bad'); return; }
+      if (v.version !== APP_VERSION) {
+        var key = 'inv.updatedTo', tried = load(key, '');
+        if (tried === v.version && !manual) return;            // tried once already this session: do not loop
+        save(key, v.version);
+        forceUpdate('New version ' + v.version.split(' ')[0] + '. Updating…');
+      } else if (manual) toast('You have the newest version (' + APP_VERSION.split(' ')[0] + ').', 'good');
+    }).catch(function () { if (manual) toast('Could not check for updates. Try again with internet.', 'bad'); });
+  }
+  $('checkUpdate').onclick = function () { checkForUpdate(true); };
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) checkForUpdate(false); });
+  setTimeout(function () { checkForUpdate(false); }, 1500);
 
   setStatus();
   // Setup link: <app link>#connect=<Apps Script /exec URL> connects this device in one tap.
