@@ -65,7 +65,8 @@
   function signedIn() { return !!(cfg.user && cfg.pin); }
   function isSup() { return cfg.role === 'supervisor'; }
   var EMBED = !!(window.google && google.script && google.script.run);
-  function mode() { return EMBED ? 'EMBED' : cfg.url ? 'LIVE' : 'DEMO'; }
+  // PREVIEW_ONLY: the one-file preview page (tools/build_preview.py) always runs on sample data
+  function mode() { return EMBED ? 'EMBED' : window.PREVIEW_ONLY ? 'DEMO' : cfg.url ? 'LIVE' : 'DEMO'; }
 
   /* demo storage: same interface as the Google Sheet store in Code.gs */
   function DemoStore() {
@@ -110,12 +111,44 @@
   function demoCore() { if (!demo) demo = new Core(new DemoStore()); return demo; }
 
   function sha256Hex(text) {
-    if (!(window.crypto && crypto.subtle && window.TextEncoder)) return Promise.reject(new Error('Demo sign-in needs an https or localhost page'));
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(function (buf) {
-      return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
-    });
+    try {
+      if (window.crypto && crypto.subtle && window.TextEncoder) {
+        return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(function (buf) {
+          return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+        }, function () { return sha256Js(text); });
+      }
+    } catch (e) {}
+    return Promise.resolve(sha256Js(text));   // pages where the browser's crypto is blocked
   }
-  function bizError(msg, extra, code) { var e = new Error(msg); e.extra = extra; e.business = true; e.code = code || (extra && extra.code); return e; }
+  /** Plain-JS SHA-256 (UTF-8), same result as crypto.subtle; only used when that is not available. */
+  function sha256Js(text) {
+    var K = [], H = [], i, j;
+    var isP = function (n) { for (var f = 2; f * f <= n; f++) if (n % f === 0) return false; return true; };
+    var frac = function (x) { return ((x - Math.floor(x)) * 4294967296) | 0; };
+    for (i = 2, j = 0; j < 64; i++) if (isP(i)) { if (j < 8) H[j] = frac(Math.pow(i, 1 / 2)); K[j++] = frac(Math.pow(i, 1 / 3)); }
+    var s = unescape(encodeURIComponent(text)), bytes = [];
+    for (i = 0; i < s.length; i++) bytes.push(s.charCodeAt(i));
+    var bitLen = bytes.length * 8;
+    bytes.push(0x80); while (bytes.length % 64 !== 56) bytes.push(0);
+    for (i = 7; i >= 0; i--) bytes.push(i > 3 ? 0 : (bitLen >>> (i * 8)) & 255);
+    var rot = function (x, n) { return (x >>> n) | (x << (32 - n)); }, W = [];
+    for (var o = 0; o < bytes.length; o += 64) {
+      for (i = 0; i < 16; i++) W[i] = (bytes[o + 4 * i] << 24) | (bytes[o + 4 * i + 1] << 16) | (bytes[o + 4 * i + 2] << 8) | bytes[o + 4 * i + 3];
+      for (i = 16; i < 64; i++) {
+        var s0 = rot(W[i - 15], 7) ^ rot(W[i - 15], 18) ^ (W[i - 15] >>> 3), s1 = rot(W[i - 2], 17) ^ rot(W[i - 2], 19) ^ (W[i - 2] >>> 10);
+        W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (i = 0; i < 64; i++) {
+        var t1 = (h + (rot(e, 6) ^ rot(e, 11) ^ rot(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0;
+        var t2 = ((rot(a, 2) ^ rot(a, 13) ^ rot(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    return H.map(function (x) { return ('00000000' + (x >>> 0).toString(16)).slice(-8); }).join('');
+  }  function bizError(msg, extra, code) { var e = new Error(msg); e.extra = extra; e.business = true; e.code = code || (extra && extra.code); return e; }
 
   /** Demo mode: the same checks the Apps Script backend does (see run_ in Code.gs). */
   function demoCall(op, p, auth) {
@@ -1054,7 +1087,7 @@
   /* ---------------- SETUP ---------------- */
   function renderSetup() {
     var m = mode();
-    $('connFields').style.display = EMBED ? 'none' : '';
+    $('connFields').style.display = EMBED || window.PREVIEW_ONLY ? 'none' : '';
     $('cfgSave').style.display = EMBED ? 'none' : '';
     $('demoPanel').style.display = m === 'DEMO' ? '' : 'none';
     $('connHint').textContent = m === 'EMBED' ? 'Opened from the Apps Script link. Connected to the Google Sheet.' :
@@ -1227,7 +1260,7 @@
     $('siMsg').textContent = msg || '';
     $('siMsg').className = 'hint' + (/^(Signed out|Demo|Connected)/.test(msg || '') ? ' info' : '');
     $('siPin').value = '';
-    $('siConn').style.display = EMBED ? 'none' : '';
+    $('siConn').style.display = EMBED || window.PREVIEW_ONLY ? 'none' : '';
     $('siUrl').value = cfg.url || '';
     var m = mode();
     $('siVer').textContent = 'App version ' + APP_VERSION;
@@ -1306,14 +1339,16 @@
   window.addEventListener('online', function () { online = true; flush(); });
   setInterval(poll, 8000);
   setInterval(flush, 15000);
-  if (!EMBED && 'serviceWorker' in navigator && location.protocol === 'https:') {
-    var hadSw = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.register('sw.js').then(function (reg) { reg.update(); }).catch(function () {});
-    // a new version took over: reload once so the screens match it (pending actions are safe in the queue)
-    navigator.serviceWorker.addEventListener('controllerchange', function () {
-      try { if (hadSw && !sessionStorage.getItem('inv.reloaded')) { sessionStorage.setItem('inv.reloaded', '1'); location.reload(); } } catch (e) {}
-    });
-  }
+  try {
+    if (!EMBED && !window.PREVIEW_ONLY && 'serviceWorker' in navigator && location.protocol === 'https:') {
+      var hadSw = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.register('sw.js').then(function (reg) { reg.update(); }).catch(function () {});
+      // a new version took over: reload once so the screens match it (pending actions are safe in the queue)
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        try { if (hadSw && !sessionStorage.getItem('inv.reloaded')) { sessionStorage.setItem('inv.reloaded', '1'); location.reload(); } } catch (e) {}
+      });
+    }
+  } catch (e) {}   // some embedded pages do not allow offline storage; the app still works online
 
   setStatus();
   // Setup link: <app link>#connect=<Apps Script /exec URL> connects this device in one tap.
