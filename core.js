@@ -197,7 +197,7 @@ Core.prototype.saveLocation = function (p) {
   var id = normLoc_(p.loc);
   if (!/^(R\d+-S\d+-B\d+(-[A-Z])?|T-?\d+)$/.test(id)) fail_('Location must look like R1-S3-B04, R1-S3-B04-A or T-0001');
   if (p.sku && !this.findPart_(p.sku)) fail_('Unknown SKU ' + p.sku);
-  var type = /^T/.test(id) ? 'TOTE' : 'BIN';
+  var type = isTote_(id) ? 'TOTE' : 'BIN';
   var ex = this.findLoc_(id), now = this.nowIso();
   if (ex) {
     if (ex.sku && p.sku && ex.sku !== p.sku && num_(ex.qty) !== 0) fail_(id + ' still holds ' + ex.qty + ' x ' + ex.sku + '. Empty it first.');
@@ -249,13 +249,18 @@ Core.prototype.savePart = function (p, who) {
   return { ok: true, version: this.s.version() };
 };
 
-var LOC_RE = /^(R\d+-S\d+-B\d+(-[A-Z])?|T-?\d+)$/;
+var LOC_RE = /^(R\d+-S\d+-B\d+(-[A-Z])?|T-?\d+|(A200|C1|OK|UNI)-[BT]\d{3,})$/;
+/** Box codes made by the app say which vehicle the parts are for: C1-B014 = C1 blue bin 14, A200-T003 = A200 white box 3.
+ *  Older codes R1-S3-B04 (blue bin) and T-0001 (white box) still work. */
+function isTote_(id) { return /^T|^(A200|C1|OK|UNI)-T/.test(String(id || '').toUpperCase()); }
 function pad2_(n) { n = String(Number(n)); return n.length < 2 ? '0' + n : n; }
 /** One spelling per box: R1-S2-B5 -> R01-S2-B05, t1 -> T-0001.  Racks are R01 ... R15. */
 function normLoc_(v) {
   var s = String(v || '').trim().toUpperCase().replace(/\s+/g, '');
   var m = /^R0*(\d+)-S0*(\d+)-B0*(\d+)(-[A-Z])?$/.exec(s);
   if (m) return 'R' + pad2_(m[1]) + '-S' + Number(m[2]) + '-B' + pad2_(m[3]) + (m[4] || '');
+  var mc = /^(A200|C1|OK|UNI)-?([BT])-?0*(\d+)$/.exec(s);
+  if (mc) return mc[1] + '-' + mc[2] + ('00' + Number(mc[3])).slice(-Math.max(3, String(Number(mc[3])).length));
   var t = /^T-?0*(\d+)$/.exec(s);
   if (t) return 'T-' + ('000' + Number(t[1])).slice(-4);
   return s;
@@ -264,7 +269,7 @@ function normLoc_(v) {
 /** Makes sure box `id` exists and holds `sku`: creates it, or fills an empty box.  Returns the box row. */
 Core.prototype.ensureBox_ = function (id, sku, min) {
   id = normLoc_(id);
-  if (!LOC_RE.test(id)) fail_('Box must look like R1-S3-B04, R1-S3-B04-A or T-0001');
+  if (!LOC_RE.test(id)) fail_('Box must look like C1-B014, A200-T003, R1-S3-B04 or T-0001');
   var ex = this.findLoc_(id);
   if (ex) {
     if (ex.sku === sku) return ex;
@@ -272,7 +277,7 @@ Core.prototype.ensureBox_ = function (id, sku, min) {
     this.s.update('Locations', ex, { sku: sku, min: min !== undefined && min !== '' ? num_(min) : num_(ex.min) });
     return ex;
   }
-  this.s.append('Locations', { loc: id, type: /^T/.test(id) ? 'TOTE' : 'BIN', sku: sku, qty: 0, min: num_(min), sealed_date: '', last_count: '', notes: '' });
+  this.s.append('Locations', { loc: id, type: isTote_(id) ? 'TOTE' : 'BIN', sku: sku, qty: 0, min: num_(min), sealed_date: '', last_count: '', notes: '' });
   return this.findLoc_(id);
 };
 

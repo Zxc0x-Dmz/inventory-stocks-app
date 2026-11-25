@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.7 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.8 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -608,9 +608,10 @@
   var MODEL_TAG = { OK4: 'ES400C', NB3: 'C1', NB2: 'A200', UNI: 'Universal' };
   var gridModel = '', gridLimit = 48, sel = null;   // sel = {sku, box, mode, kind}
   /** Two kinds of container: blue picking bins on the racks (R1-S1-B02) and white storage boxes (T-0001). */
-  var KIND = { BIN: { name: 'Blue bin', cls: 'kb', eg: 'R1-S1-B02', re: /^R\d+-S\d+-B\d+(-[A-Z])?$/ },
-               TOTE: { name: 'White box', cls: 'kw', eg: 'T-0001', re: /^T-?\d+$/ } };
-  function kindOf(loc) { return /^T/i.test(loc) ? 'TOTE' : 'BIN'; }
+  var KIND = { BIN: { name: 'Blue bin', cls: 'kb', eg: 'C1-B001', re: /^((A200|C1|OK|UNI)-B\d{3,}|R\d+-S\d+-B\d+(-[A-Z])?)$/ },
+               TOTE: { name: 'White box', cls: 'kw', eg: 'C1-T001', re: /^((A200|C1|OK|UNI)-T\d{3,}|T-?\d+)$/ } };
+  function kindOf(loc) { return isTote_(loc) ? 'TOTE' : 'BIN'; }
+  var CODE_MODEL = { NB2: 'A200', NB3: 'C1', OK4: 'OK', UNI: 'UNI' };   // first part of a box code
   function kindTag(k) { return '<span class="ktag ' + KIND[k].cls + '"><i></i>' + KIND[k].name + '</span>'; }
 
   function stockOf(sku) {
@@ -709,15 +710,35 @@
   function qtyField(v) {
     return '<label class="lbl">How many?</label><div class="stepper"><button type="button" data-step="-1">−</button><input id="fQty" type="number" inputmode="numeric" min="1" value="' + (v || 1) + '"><button type="button" data-step="1">+</button></div>';
   }
+  /* Where to put a part: the app makes the label code, so nobody has to think one up.
+   * The code says which vehicle it is for and counts up per model: C1-B001, C1-B002 ... (blue bins), C1-T001 ... (white boxes);
+   * A200-..., OK-... (OKAI 400C) and UNI-... (shared parts) the same.  Labels are printed later from the Labels tab. */
+  function nextCode(kind, model) {
+    var pre = (CODE_MODEL[model] || 'UNI') + '-' + (kind === 'TOTE' ? 'T' : 'B'), max = 0, free = null;
+    snap.locations.forEach(function (l) {
+      var id = normLoc_(l.loc); if (id.indexOf(pre) !== 0) return;
+      var n = Number(id.slice(pre.length)); if (!(n > 0)) return;
+      max = Math.max(max, n);
+      if (!free && !l.sku && num(l.qty) === 0) free = id;   // an empty box that has a code but no part yet
+    });
+    queue.forEach(function (q) { var to = q.p && normLoc_(q.p.loc || q.p.to || ''); if (to && to.indexOf(pre) === 0) max = Math.max(max, Number(to.slice(pre.length)) || 0); });   // not sent yet
+    return free || normLoc_(pre + (max + 1));
+  }
   function boxInput(label, st) {
     var k = sel.kind, mine = st.locs.filter(function (l) { return kindOf(l.loc) === k; });
-    var value = sel.box && kindOf(sel.box) === k && sel.mode === 'ADD' ? sel.box : (mine[0] || {}).loc || '';
-    return '<label class="lbl">' + label + '</label><div class="kinds">' + ['BIN', 'TOTE'].map(function (x) {
+    var auto = nextCode(k, (P[sel.sku] || {}).model);
+    if (!sel.pick || kindOf(sel.pick) !== k) sel.pick = (mine[0] || {}).loc || auto;
+    var chip = function (id, top, sub, cls) {
+      return '<button type="button" class="pickbox' + (cls || '') + (id === sel.pick ? ' on' : '') + '" data-pick="' + esc(id) + '"><small>' + top + '</small><b class="mono">' + esc(id) + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</button>';
+    };
+    var h = '<label class="lbl">' + label + '</label><div class="kinds">' + ['BIN', 'TOTE'].map(function (x) {
         return '<button type="button" class="kindbtn ' + KIND[x].cls + (x === k ? ' on' : '') + '" data-kind="' + x + '"><i></i>' + KIND[x].name + '</button>';
-      }).join('') + '</div>' +
-      (mine.length ? '<p class="hint">This part is already in ' + mine.map(function (l) { return esc(l.loc) + ' (' + num(l.qty) + ')'; }).join(', ') + '.</p>' : '') +
-      '<label class="lbl" for="boxInput">Which ' + KIND[k].name.toLowerCase() + '? Scan or type its label</label>' +
-      '<div class="scanrow"><input id="boxInput" class="scan" placeholder="e.g. ' + KIND[k].eg + '" value="' + esc(value) + '" autocomplete="off" autocapitalize="characters"><button type="button" class="cam" data-cam="boxInput" title="Scan box label">📷</button></div>';
+      }).join('') + '</div><div class="picks">';
+    mine.forEach(function (l) { h += chip(l.loc, 'Same ' + KIND[k].name.toLowerCase(), num(l.qty) + ' pcs already'); });
+    if (mine.every(function (l) { return l.loc !== auto; })) h += chip(auto, mine.length ? 'Or a new one' : 'New ' + KIND[k].name.toLowerCase(), 'next free number', ' new');
+    h += '</div>';
+    h += '<details class="more typebox"><summary>Or scan / type a label</summary><div class="scanrow"><input id="boxInput" class="scan" placeholder="e.g. ' + KIND[k].eg + '" value="' + esc(sel.pick) + '" autocomplete="off" autocapitalize="characters"><button type="button" class="cam" data-cam="boxInput" title="Scan box label">📷</button></div></details>';
+    return h;
   }
   function vehField(required) {
     return '<label class="lbl" for="vehInput">Scooter / bike ID' + (required ? '' : ' (optional)') + '</label><div class="scanrow"><input id="vehInput" placeholder="Scan the vehicle QR or type it" autocomplete="off" autocapitalize="characters"><button type="button" class="cam" data-cam="vehInput" title="Scan vehicle QR">📷</button></div>';
@@ -746,7 +767,7 @@
       if (mode === 'OUT' || mode === 'SCRAP') h += '<label class="lbl">From which box?</label>' + boxChips(st, function (l) { return l.type === 'BIN' || num(l.qty) > 0; });
       if (mode === 'RETURN') h += '<label class="lbl">Back into which box?</label>' + boxChips(st, function (l) { return l.type === 'BIN'; });
       if (mode === 'MOVE') h += '<label class="lbl">From which box?</label>' + boxChips(st, function (l) { return num(l.qty) > 0; }) + boxInput('Move to a', st);
-      if (mode === 'ADD') h += boxInput('Put it in a', st) + '<p class="hint">A new label code is set up for this part automatically.</p>';
+      if (mode === 'ADD') h += boxInput('Put it in a', st);
       h += qtyField(1);
       if (mode === 'RETURN') h += vehField(false);
       if (mode === 'SCRAP') h += '<label class="lbl" for="noteInput">What is wrong? (optional)</label><input id="noteInput" placeholder="e.g. cracked in transit">';
@@ -762,18 +783,22 @@
     $('photoCam').onclick = function () { $('photoCamPick').click(); };    // opens the camera straight away
     $('photoGal').onclick = function () { $('photoPick').click(); };       // picks a saved photo
     $('photoCamPick').onchange = $('photoPick').onchange = function () { var f = this.files && this.files[0]; this.value = ''; if (f) uploadPhoto(p.sku, f); };
-    qsa('#modalBody [data-kind]').forEach(function (b) { b.onclick = function () { var q = $('fQty').value; sel.kind = b.dataset.kind; renderPart(); $('fQty').value = q; }; });
+    qsa('#modalBody [data-kind]').forEach(function (b) { b.onclick = function () { var q = $('fQty').value; sel.kind = b.dataset.kind; sel.pick = null; renderPart(); $('fQty').value = q; }; });
+    qsa('#modalBody [data-pick]').forEach(function (b) { b.onclick = function () {
+      sel.pick = b.dataset.pick; $('boxInput').value = sel.pick;
+      qsa('#modalBody [data-pick]').forEach(function (x) { x.classList.toggle('on', x === b); });
+    }; });
     if (!mode) {
       $('doOut').onclick = function () {
         if (!st.locs.some(function (l) { return num(l.qty) > 0; }) && !st.locs.length) return toast('No stock of this part yet. Use Add stock first.', 'bad');
         sel.mode = 'OUT'; renderPart();
       };
-      $('doAdd').onclick = function () { sel.mode = 'ADD'; sel.kind = sel.box ? kindOf(sel.box) : 'BIN'; renderPart(); };
+      $('doAdd').onclick = function () { sel.mode = 'ADD'; sel.pick = null; sel.kind = sel.box ? kindOf(sel.box) : 'BIN'; renderPart(); };
       qsa('#modalBody [data-mode]').forEach(function (b) {
         b.onclick = function () {
           if (b.dataset.mode !== 'RETURN' && !st.locs.length) return toast('This part is not in any box yet.', 'bad');
           if (b.dataset.mode === 'RETURN' && !st.locs.some(function (l) { return l.type === 'BIN'; })) return toast('This part has no bin to return to. Use Add stock.', 'bad');
-          sel.mode = b.dataset.mode;
+          sel.mode = b.dataset.mode; sel.pick = null;
           sel.kind = sel.box && kindOf(sel.box) === 'TOTE' ? 'BIN' : 'TOTE';   // moving: usually white box -> blue bin
           renderPart();
         };
@@ -825,7 +850,8 @@
       if (mode === 'ADD') {
         item = { id: uid(), type: 'RECEIVE', sku: p.sku, loc: to, qty: qty, device: cfg.device };
         enqueue('putAway', item, '+' + qty + ' ' + p.name + ' → ' + KIND[sel.kind].name.toLowerCase() + ' ' + to);
-        toast('Added ' + qty + ' × ' + p.name + ' to ' + KIND[sel.kind].name.toLowerCase() + ' ' + to, 'good');
+        var isNew = !L[to];
+        toast('Added ' + qty + ' × ' + p.name + ' to ' + KIND[sel.kind].name.toLowerCase() + ' ' + to + (isNew ? ' (new: print its label later in Labels)' : ''), 'good');
       } else {
         if (!box) return toast('Tap the box to move from', 'bad');
         if (to === box) return toast('Choose a different box', 'bad');
@@ -974,7 +1000,7 @@
   /* ---------------- COUNT (blind) ---------------- */
   var dayPicked = null;
   $('schedDay').onchange = function () { dayPicked = num(this.value); renderCount(); };
-  function shelfOf(loc) { return loc.split('-').slice(0, 2).join('-'); }
+  function shelfOf(loc) { var m = /^(A200|C1|OK|UNI)-([BT])(\d+)$/.exec(loc); return m ? m[1] + '-' + m[2] + Math.floor(Number(m[3]) / 10) + 'x' : loc.split('-').slice(0, 2).join('-'); }   // counted in groups of ten
 
   /** Locations to count for a weekday (1=Mon … 5=Fri; 0 = overdue). */
   function schedule(day) {
@@ -1260,7 +1286,7 @@
   $('bulkGo').onclick = function () {
     var rows = $('bulkText').value.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean).map(function (s) {
       var c = s.split(/[,;\t]/).map(function (x) { return x.trim(); });
-      return { loc: (c[0] || '').toUpperCase(), sku: (c[1] || '').toUpperCase(), qty: num(c[2]), min: c[3] === undefined ? (/^T/i.test(c[0]) ? 0 : 2) : num(c[3]) };
+      return { loc: (c[0] || '').toUpperCase(), sku: (c[1] || '').toUpperCase(), qty: num(c[2]), min: c[3] === undefined ? (isTote_(c[0]) ? 0 : 2) : num(c[3]) };
     });
     if (!rows.length) return;
     var out = $('bulkOut'), done = [], i = 0;
