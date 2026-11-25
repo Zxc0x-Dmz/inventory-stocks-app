@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.6 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.7 (2026-11-25)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -349,8 +349,10 @@
   var current = 'take';
   /** Mechanics get Parts and Settings. */
   function tabAllowed(t) { return isSup() || t === 'take' || t === 'setup'; }
-  function showTab(t) {
+  var tabTrail = [];   // tabs visited before this one, for the phone's Back button
+  function showTab(t, fromBack) {
     if (!tabAllowed(t)) t = 'take';
+    if (!fromBack && t !== current && current) { tabTrail.push(current); if (tabTrail.length > 20) tabTrail.shift(); }
     current = t;
     qsa('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
     qsa('.tab').forEach(function (s) { s.classList.toggle('on', s.id === 'tab-' + t); });
@@ -725,7 +727,8 @@
     var st = stockOf(p.sku), mode = sel.mode, h = '';
     h += '<div class="pd"><div class="pd-top">' +
       '<div class="pd-left">' + (p.photo_id ? '<div class="pd-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></div>' : '<div class="pd-ph none"><i>No photo yet</i></div>') +
-      '<button type="button" class="photobtn" id="photoChange">📷 ' + (p.photo_id ? 'Change photo' : 'Add photo') + '</button><input type="file" id="photoPick" accept="image/*" hidden></div>' +
+      '<div class="photobtns"><button type="button" class="photobtn" id="photoCam">📷 Take photo</button><button type="button" class="photobtn" id="photoGal">🖼 From gallery</button></div>' +
+      '<input type="file" id="photoCamPick" accept="image/*" capture="environment" hidden><input type="file" id="photoPick" accept="image/*" hidden></div>' +
       '<div class="pd-info"><span class="mtag m-' + esc(p.model) + '"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + esc((MODELS[p.model] || {}).name || '') + '</span>' +
       '<h3>' + esc(p.name) + '</h3><div class="pd-sku">SKU <b class="mono">' + esc(codeOf(p)) + '</b></div>' +
       '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : 'Not in stock yet') + '</div></div></div>' +
@@ -756,8 +759,9 @@
       b.onclick = function () { sel.box = b.dataset.box; qsa('#modalBody [data-box]').forEach(function (x) { x.classList.toggle('on', x === b); }); if ($('boxInput') && mode === 'ADD') $('boxInput').value = sel.box; };
     });
     qsa('#modalBody [data-cam]').forEach(function (b) { b.onclick = function () { openCam(b.dataset.cam); }; });
-    $('photoChange').onclick = function () { $('photoPick').click(); };
-    $('photoPick').onchange = function () { var f = this.files && this.files[0]; if (f) uploadPhoto(p.sku, f); };
+    $('photoCam').onclick = function () { $('photoCamPick').click(); };    // opens the camera straight away
+    $('photoGal').onclick = function () { $('photoPick').click(); };       // picks a saved photo
+    $('photoCamPick').onchange = $('photoPick').onchange = function () { var f = this.files && this.files[0]; this.value = ''; if (f) uploadPhoto(p.sku, f); };
     qsa('#modalBody [data-kind]').forEach(function (b) { b.onclick = function () { var q = $('fQty').value; sel.kind = b.dataset.kind; renderPart(); $('fQty').value = q; }; });
     if (!mode) {
       $('doOut').onclick = function () {
@@ -788,7 +792,7 @@
   /** Take or pick a photo on the phone: made small, saved for this part, shown on every phone. */
   function uploadPhoto(sku, file) {
     if (!signedIn()) return showSignIn();
-    var btn = $('photoChange'); if (btn) { btn.disabled = true; btn.textContent = 'Saving photo…'; }
+    var btns = qsa('.photobtns .photobtn'); btns.forEach(function (b) { b.disabled = true; }); if (btns[0]) btns[0].textContent = 'Saving photo…';
     var reader = new FileReader();
     reader.onload = function () {
       shrink(reader.result, 480, .75).then(function (d) { return d && d.length < 49000 ? d : shrink(reader.result, 320, .6); }).then(function (d) {
@@ -802,7 +806,7 @@
         });
       }).catch(function (e) {
         toast(e.business ? e.message : 'Saving a photo needs a connection. Try again.', 'bad');
-        if (btn) { btn.disabled = false; btn.textContent = '📷 Change photo'; }
+        btns.forEach(function (b) { b.disabled = false; }); if (btns[0]) btns[0].textContent = '📷 Take photo';
       });
     };
     reader.readAsDataURL(file);
@@ -1478,6 +1482,28 @@
   setTimeout(function () { checkForUpdate(false); }, 1500);
 
   setStatus();
+
+  /* Android Back button: closes what is open (big photo, camera, part window), then goes to the previous tab.
+   * Only on the first screen with nothing open does Back leave the app.  A spare history entry catches each press. */
+  function handleBack() {
+    var big = document.querySelector('.photoBig'); if (big) { big.remove(); return true; }
+    if (!$('camModal').classList.contains('hidden')) { closeCam(); return true; }
+    if (!$('modal').classList.contains('hidden')) { closeModal(); sel = null; renderAll(); return true; }
+    if (!$('signin').classList.contains('hidden')) return false;
+    while (tabTrail.length) { var t = tabTrail.pop(); if (t !== current && tabAllowed(t)) { showTab(t, true); return true; } }
+    if (current !== 'take') { showTab('take', true); return true; }
+    return false;
+  }
+  if (!EMBED && window.history && history.pushState) {
+    try {
+      history.replaceState({ inv: 'base' }, '');
+      history.pushState({ inv: 'guard' }, '');
+      window.addEventListener('popstate', function () {
+        if (handleBack()) history.pushState({ inv: 'guard' }, '');
+        else history.back();   // nothing left to close: leave the app
+      });
+    } catch (e) {}
+  }
   // Setup link: <app link>#connect=<Apps Script /exec URL> connects this device in one tap.
   // The /exec URL stays out of the public code; share the setup link only with your team.
   var hc = /^#connect=(.+)$/.exec(location.hash || '');
