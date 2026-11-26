@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.19 (2026-11-25)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.20 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1602,7 +1602,8 @@
           chosen.slice(i, i + per).map(kind === 'PART' ? function (r) { return partLabel(r.part); } : binLabel).join('') + '</div>';
       }
     } else {
-      for (var j = 0; j < chosen.length; j += 2) html += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">' + chosen.slice(j, j + 2).map(toteLabel).join('') + '</div>';
+      // white box labels: A4 landscape, 2 x 2 stickers of 148.5 x 105 mm
+      for (var j = 0; j < chosen.length; j += 4) html += '<div class="page land" style="grid-template-columns:148.5mm 148.5mm;grid-template-rows:105mm 105mm">' + chosen.slice(j, j + 4).map(toteLabel).join('') + '</div>';
     }
     return html;
   }
@@ -1621,7 +1622,10 @@
       '<p class="hint">Preview of the A4 sticker sheet' + (lbMode === 'BIN' ? ' (' + esc($('labelLayout').selectedOptions[0].textContent) + ')' : '') + '. Nothing is printed yet.</p>' +
       '<div class="btns"><button type="button" class="big" data-x="close">Close</button>' + (after ? '<button type="button" class="big go" data-x="stay" id="pvPrint">Print these</button>' : '') + '</div>');
     var wrap = document.querySelector('#modalBody .pvwrap'), pages = document.querySelector('#modalBody .pvpages');
-    var fit = function () { var s = Math.min(1, (wrap.clientWidth - 4) / pages.firstChild.offsetWidth); pages.style.transform = 'scale(' + s + ')'; pages.style.height = (pages.scrollHeight * s) + 'px'; wrap.style.height = (pages.firstChild ? pages.getBoundingClientRect().height : 0) + 'px'; };
+    var fit = function () {   // whole sheet visible: fit the width, and a landscape sheet also the height
+      var pg = pages.firstChild, s = Math.min(1, (wrap.clientWidth - 4) / pg.offsetWidth, pg.classList.contains('land') ? (window.innerHeight * 0.55) / pg.offsetHeight : 1);
+      pages.style.transform = 'scale(' + s + ')'; pages.style.transformOrigin = 'top left'; wrap.style.height = Math.ceil(Math.min(pages.scrollHeight * s, window.innerHeight * 0.62)) + 'px';
+    };
     if (pages.firstChild) setTimeout(fit, 0);
     if (after) $('pvPrint').onclick = function () { closeModal(); after(); };
   }
@@ -1636,9 +1640,9 @@
     var rows = inBox(loc); if (!rows.length) return;
     var b = { loc: normLoc_(loc), type: rows[0].type, rows: rows }, kind = b.type === 'TOTE' ? 'TOTE' : 'BIN';
     withQr().then(function () {
-      var L4 = LAYOUTS[$('labelLayout').value], w = kind === 'BIN' ? L4[2] : 210, h = kind === 'BIN' ? L4[3] : 148.5;
+      var L4 = LAYOUTS[$('labelLayout').value], w = kind === 'BIN' ? L4[2] : 148.5, h = kind === 'BIN' ? L4[3] : 105;
       modal('<h3 class="formtitle mono">' + esc(b.loc) + ' · sticker</h3><div class="pvwrap one"><div class="pvone" style="width:' + w + 'mm;height:' + h + 'mm">' + (kind === 'BIN' ? binLabel(b) : toteLabel(b)) + '</div></div>' +
-        '<p class="hint">' + (kind === 'BIN' ? 'Real size ' + w + ' × ' + h + ' mm (' + esc($('labelLayout').selectedOptions[0].textContent) + '), shown bigger.' : 'White box label: half an A4 sheet.') + '</p>' +
+        '<p class="hint">' + (kind === 'BIN' ? 'Real size ' + w + ' × ' + h + ' mm (' + esc($('labelLayout').selectedOptions[0].textContent) + '), shown bigger.' : 'White box label: 148.5 × 105 mm, 4 per A4 landscape sheet.') + '</p>' +
         '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big go" data-x="stay" id="pvOnePrint">Print this one</button></div>');
       $('pvOnePrint').onclick = function () {
         closeModal(); lbMode = kind; lbSel = {}; lbSel[b.loc] = true;
