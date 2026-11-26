@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.24 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.26 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1238,6 +1238,11 @@
     machine: { name: 'Machine / lift', w: 1.2, d: 1.2, fill: '#90a4ae' },
     pillar: { name: 'Pillar', w: 0.4, d: 0.4, fill: '#455a64' },
     area: { name: 'Floor area', w: 3, d: 2, fill: '#e3f2fd', walk: true },
+    walkway: { name: 'Walkway', w: 4, d: 1.2, fill: '#fff7d6', walk: true },
+    table: { name: 'Table', w: 1.6, d: 0.8, fill: '#a1887f' },
+    chair: { name: 'Chair', w: 0.5, d: 0.5, fill: '#78909c' },
+    tools: { name: 'Tool cabinet', w: 1.2, d: 0.6, fill: '#c62828' },
+    boxes: { name: 'Boxes / pallet', w: 1.2, d: 1, fill: '#d7a86e' },
     label: { name: 'Text', w: 2, d: 0.5, walk: true }
   };
   function blankMap() { return { v: 2, W: 12, H: 8, w: 24, h: 16, door: { x: 0.1, y: 4, w: 1, d: 0.2, a: 270 }, racks: [], items: [] }; }
@@ -1269,7 +1274,15 @@
   function toLocal(it, px, py) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = px - it.x, dy = py - it.y; return [dx * c + dy * s, -dx * s + dy * c]; }
   function covers(it, px, py, pad) { var l = toLocal(it, px, py); return Math.abs(l[0]) <= it.w / 2 + pad && Math.abs(l[1]) <= it.d / 2 + pad; }
   /** Where you stand to reach box `slot` (1 = left when you face the rack): 40 cm in front of the rack. */
-  function frontPoint(r, slot) { var n = Math.max(1, r.slots); return toWorld(r, -r.w / 2 + ((slot || 1) - .5) / n * r.w, r.d / 2 + .4); }
+  /** The shelves of a rack, bottom first: [{t: 'BIN' | 'TOTE', n: boxes}].  Older racks: same count on every shelf. */
+  function layersOf(r) {
+    if (r && r.layers && r.layers.length) return r.layers;
+    var out = []; for (var i = 0; i < Math.max(1, (r && r.shelves) || 1); i++) out.push({ t: 'BIN', n: Math.max(1, (r && r.slots) || 1) });
+    return out;
+  }
+  function setLayers(r, L) { r.layers = L; r.shelves = L.length; r.slots = L.reduce(function (a, x) { return Math.max(a, x.n); }, 1); }
+  /** Where you stand to reach box `slot` on `shelf` (1 = left when you face the rack): 40 cm in front of the rack. */
+  function frontPoint(r, slot, shelf) { var L = layersOf(r), n = Math.max(1, (L[(shelf || 1) - 1] || L[0]).n); return toWorld(r, -r.w / 2 + ((slot || 1) - .5) / n * r.w, r.d / 2 + .4); }
   function doorStart(m) { return toWorld(m.door, 0, .5); }
   /** Walk from the entrance to a point, around racks, walls, benches, machines and pillars.  [[x,y] ...] in metres, or null. */
   function walkPath(m, to) {
@@ -1337,20 +1350,52 @@
     } else arms = '<line x1="' + (x - 7 * s - lp * .6) + '" y1="' + (y - 13 * s) + '" x2="' + x + '" y2="' + (y - 18 * s) + '"/><line x1="' + x + '" y1="' + (y - 18 * s) + '" x2="' + (x + 7 * s + lp * .6) + '" y2="' + (y - 13 * s) + '"/>';
     return '<g class="man" stroke="' + col + '" stroke-width="' + 2.2 * s + '" stroke-linecap="round" fill="none">' + body + legs + arms + head + '</g>';
   }
+  /** Simple pictures of furniture, seen from above (w, d in pixels, centred on 0,0). */
+  var FURN = {
+    walkway: function (w, d, T) {
+      var arrows = '', n = Math.max(1, Math.floor(w / 70));
+      for (var i = 0; i < n; i++) { var x = -w / 2 + (i + .5) * w / n; arrows += '<path d="M' + (x - 8) + ',-5 L' + (x + 4) + ',0 L' + (x - 8) + ',5" fill="none" stroke="#e0b000" stroke-width="3" stroke-linecap="round"/>'; }
+      return '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="' + T.fill + '"/>' +
+        '<line x1="' + (-w / 2) + '" y1="' + (-d / 2 + 2) + '" x2="' + (w / 2) + '" y2="' + (-d / 2 + 2) + '" stroke="#f2c200" stroke-width="4" stroke-dasharray="14 8"/>' +
+        '<line x1="' + (-w / 2) + '" y1="' + (d / 2 - 2) + '" x2="' + (w / 2) + '" y2="' + (d / 2 - 2) + '" stroke="#f2c200" stroke-width="4" stroke-dasharray="14 8"/>' + arrows;
+    },
+    table: function (w, d, T) {
+      return '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="' + T.fill + '" stroke="#6d4c41" stroke-width="2"/>' +
+        '<rect x="' + (-w / 2 + 4) + '" y="' + (-d / 2 + 4) + '" width="' + (w - 8) + '" height="' + (d - 8) + '" rx="2" fill="#bcaaa4"/>';
+    },
+    chair: function (w, d, T) {
+      return '<rect x="' + (-w / 2) + '" y="' + (-d / 2 + d * .2) + '" width="' + w + '" height="' + (d * .8) + '" rx="' + (w * .2) + '" fill="' + T.fill + '"/>' +
+        '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + (d * .25) + '" rx="3" fill="#455a64"/>';
+    },
+    tools: function (w, d, T) {
+      var out = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="2" fill="' + T.fill + '" stroke="#8e0000" stroke-width="2"/>', n = Math.max(2, Math.round(w / 14));
+      for (var i = 1; i < n; i++) { var x = -w / 2 + i * w / n; out += '<line x1="' + x + '" y1="' + (-d / 2 + 3) + '" x2="' + x + '" y2="' + (d / 2 - 3) + '" stroke="#ff8a80" stroke-width="1.5"/>'; }
+      return out + '<text x="0" y="4" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">🔧 Tools</text>';
+    },
+    boxes: function (w, d, T) {
+      var out = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="#8d6e63" opacity=".35"/>', cols = Math.max(1, Math.round(w / 22)), rows = Math.max(1, Math.round(d / 22)), cw = w / cols, ch = d / rows;
+      for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) {
+        var x = -w / 2 + c * cw + 1.5, y = -d / 2 + r * ch + 1.5;
+        out += '<rect x="' + x + '" y="' + y + '" width="' + (cw - 3) + '" height="' + (ch - 3) + '" fill="' + T.fill + '" stroke="#a1764a" stroke-width="1"/>' +
+          '<line x1="' + x + '" y1="' + (y + (ch - 3) / 2) + '" x2="' + (x + cw - 3) + '" y2="' + (y + (ch - 3) / 2) + '" stroke="#c49a63" stroke-width="2"/>';
+      }
+      return out;
+    }
+  };
   function itemSvg(it, kind, o) {
     var S = MS, w = it.w * S, d = it.d * S, sel = o.sel === o.key, body;
     if (kind === 'rack') {
       var col = MAP_COLORS[rackModelOf(it)] || MAP_COLORS[''], lit = o.hi === it.id;
       body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="' + col + '" opacity="' + (o.hi && !lit ? .35 : 1) + '"' + (lit ? ' stroke="#ffd400" stroke-width="5"' : '') + '/>' +
         '<line x1="' + (-w / 2) + '" y1="' + (d / 2) + '" x2="' + (w / 2) + '" y2="' + (d / 2) + '" stroke="#fff" stroke-width="3" opacity=".95"/>' +
-        '<text x="0" y="' + Math.min(5, d / 4) + '" text-anchor="middle" font-size="' + Math.max(9, Math.min(14, d * .55)) + '" font-weight="800" fill="#fff">' + it.id + '</text>';
+        '<text x="0" y="' + Math.min(5, d / 4) + '" text-anchor="middle" font-size="' + Math.max(9, Math.min(14, d * .55)) + '" font-weight="800" fill="#fff">' + it.id + (it.name ? '<tspan font-size="' + Math.max(8, Math.min(11, d * .4)) + '" font-weight="600"> · ' + esc(it.name) + '</tspan>' : '') + '</text>';
     } else if (kind === 'door') {
       body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="#1f9d55" stroke="#0f6b37" stroke-width="2"/>' +
         '<line x1="0" y1="' + (d / 2) + '" x2="0" y2="' + (d / 2 + S * .7) + '" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>' +
         '<polygon points="0,' + (d / 2 + S * .95) + ' -7,' + (d / 2 + S * .6) + ' 7,' + (d / 2 + S * .6) + '" fill="#1f9d55"/>';
     } else {
       var T = THINGS[kind] || THINGS.wall;
-      body = kind === 'label' ? '' : '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="' + (kind === 'pillar' ? 3 : 2) + '" fill="' + T.fill + '"' + (kind === 'area' ? ' stroke="#64b5f6" stroke-width="2" stroke-dasharray="6 4"' : '') + '/>';
+      body = kind === 'label' ? '' : FURN[kind] ? FURN[kind](w, d, T) : '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="' + (kind === 'pillar' ? 3 : 2) + '" fill="' + T.fill + '"' + (kind === 'area' ? ' stroke="#64b5f6" stroke-width="2" stroke-dasharray="6 4"' : '') + '/>';
       var txt = it.text || (kind === 'bench' || kind === 'machine' ? T.name : '');
       if (txt) body += '<text x="0" y="4" text-anchor="middle" font-size="' + (kind === 'label' ? 16 : 11) + '" font-weight="800" fill="' + (kind === 'area' || kind === 'label' ? '#0f4fa3' : '#fff') + '">' + esc(txt) + '</text>';
       if (kind === 'label' && o.edit) body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="rgba(30,111,217,.06)" stroke="#9fc3f0" stroke-dasharray="4 3"/>' + body;
@@ -1372,7 +1417,7 @@
     for (var gx = 0; gx <= m.W + 1e-9; gx += .5) g += '<line x1="' + gx * S + '" y1="0" x2="' + gx * S + '" y2="' + H + '"' + (Math.abs(gx - Math.round(gx)) < 1e-9 ? ' stroke="#d9dde3"' : '') + '/>';
     for (var gy = 0; gy <= m.H + 1e-9; gy += .5) g += '<line x1="0" y1="' + gy * S + '" x2="' + W + '" y2="' + gy * S + '"' + (Math.abs(gy - Math.round(gy)) < 1e-9 ? ' stroke="#d9dde3"' : '') + '/>';
     var items = m.items.map(function (it, n) { return { it: it, n: n }; });
-    var under = items.filter(function (x) { return x.it.kind === 'area'; }), over = items.filter(function (x) { return x.it.kind !== 'area' && x.it.kind !== 'label'; }), labels = items.filter(function (x) { return x.it.kind === 'label'; });
+    var flat = { area: 1, walkway: 1 }, under = items.filter(function (x) { return flat[x.it.kind]; }), over = items.filter(function (x) { return !flat[x.it.kind] && x.it.kind !== 'label'; }), labels = items.filter(function (x) { return x.it.kind === 'label'; });
     var draw = function (x) { return itemSvg(x.it, x.it.kind, { key: 'i' + x.n, sel: o.sel, edit: o.edit }); };
     var path = '';
     if (o.path && o.path.length > 1) {
@@ -1381,36 +1426,54 @@
         '<circle cx="' + last[0] * S + '" cy="' + last[1] * S + '" r="7" fill="#ffb300"/>';
     }
     var dp = toWorld(m.door, 0, 1.45), sign = '<g pointer-events="none"><rect x="' + (dp[0] * S - 48) + '" y="' + (dp[1] * S - 12) + '" width="96" height="24" rx="6" fill="#1f9d55"/><text x="' + dp[0] * S + '" y="' + (dp[1] * S + 5) + '" text-anchor="middle" font-size="13" font-weight="900" fill="#fff" letter-spacing="1">🚪 ENTRANCE</text></g>';
-    return '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#f7f8fa"/><g stroke="#eceef1" stroke-width="1">' + g + '</g>' +
+    var floor = '<defs><pattern id="floorTiles" width="' + S + '" height="' + S + '" patternUnits="userSpaceOnUse">' +
+        '<rect width="' + S + '" height="' + S + '" fill="#e8e5de"/><rect x="1" y="1" width="' + (S - 2) + '" height="' + (S - 2) + '" fill="#efece6"/>' +
+        '<path d="M1,' + (S - 1) + ' L1,1 L' + (S - 1) + ',1" fill="none" stroke="#f8f6f2" stroke-width="1.5"/>' +
+        '<circle cx="' + S * .3 + '" cy="' + S * .65 + '" r="1" fill="#dcd8cf"/><circle cx="' + S * .72 + '" cy="' + S * .28 + '" r="1.2" fill="#dcd8cf"/></pattern></defs>' +
+      '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="url(#floorTiles)"/>';
+    return floor + (o.edit ? '<g stroke="#d9d5cc" stroke-width=".6" opacity=".7">' + g + '</g>' : '') +
       under.map(draw).join('') + over.map(draw).join('') +
       m.racks.map(function (r) { return itemSvg(r, 'rack', { key: 'r' + r.id, hi: o.hi, sel: o.sel, edit: o.edit }); }).join('') +
-      labels.map(draw).join('') + path + itemSvg(m.door, 'door', { key: 'door', sel: o.sel, edit: o.edit }) + sign + '<g id="manLayer"></g>';
+      labels.map(draw).join('') + '<rect x="-4" y="-4" width="' + (W + 8) + '" height="' + (H + 8) + '" fill="none" stroke="#3b4048" stroke-width="8" rx="2"/>' +
+      path + itemSvg(m.door, 'door', { key: 'door', sel: o.sel, edit: o.edit }) + sign + '<g id="manLayer"></g>';
   }
   function topSvg(m, o) {
     return '<svg viewBox="-60 -60 ' + (m.W * MS + 120) + ' ' + (m.H * MS + 120) + '" xmlns="http://www.w3.org/2000/svg"><g id="mapContent">' + topInner(m, o) + '</g></svg>';
   }
   /** Front view of a rack: shelves (1 = bottom) and boxes (1 = left), the target box lit, the stickman pointing at it. */
+  /** Front view of a rack, shelf by shelf (1 = bottom).  Each shelf has its own kind and number of boxes.
+   *  The target box is lit, the stickman points at it.  Returns svg; rackHit() turns a tap into {shelf, slot}. */
+  var RK = { ox: 70, oy: 14, iw: 300, hBIN: 32, hTOTE: 46 };
+  function rackRows(r) {   // shelf rectangles from the top down
+    var L = layersOf(r), y = RK.oy, rows = [];
+    for (var i = L.length - 1; i >= 0; i--) { var h = L[i].t === 'TOTE' ? RK.hTOTE : RK.hBIN; rows.push({ shelf: i + 1, t: L[i].t, n: Math.max(1, L[i].n), y: y, h: h }); y += h; }
+    return { rows: rows, bottom: y };
+  }
+  function rackHit(r, x, y) {
+    var R = rackRows(r).rows.filter(function (q) { return y >= q.y && y < q.y + q.h; })[0];
+    if (!R || x < RK.ox || x > RK.ox + RK.iw) return null;
+    return { shelf: R.shelf, slot: Math.min(R.n, Math.floor((x - RK.ox) / (RK.iw / R.n)) + 1) };
+  }
   function rackSvg(r, pl, label) {
-    var cw = 46, ch = 34, cols = Math.max(1, r.slots), rows = Math.max(1, r.shelves), ox = 70, oy = 14, W = ox + cols * cw + 20, H = oy + rows * ch + 50;
-    var col = MAP_COLORS[rackModelOf(r)] || MAP_COLORS[''], out = '';
-    out += '<rect x="' + (ox - 6) + '" y="' + (oy - 6) + '" width="' + (cols * cw + 12) + '" height="' + (rows * ch + 12) + '" rx="4" fill="none" stroke="' + col + '" stroke-width="6"/>';
-    for (var sh = 1; sh <= rows; sh++) {
-      var y = oy + (rows - sh) * ch;
-      out += '<text x="' + (ox - 12) + '" y="' + (y + ch / 2 + 4) + '" text-anchor="end" font-size="11" font-weight="700" fill="#5f6672">Shelf ' + sh + '</text>';
-      for (var sl = 1; sl <= cols; sl++) {
-        var x = ox + (sl - 1) * cw, hit = pl && pl.shelf === sh && pl.slot === sl;
-        out += '<rect x="' + (x + 3) + '" y="' + (y + 4) + '" width="' + (cw - 6) + '" height="' + (ch - 8) + '" rx="3" fill="' + (hit ? '#ffd400' : '#eef0f3') + '" stroke="' + (hit ? '#b07d00' : '#d5d9df') + '" stroke-width="' + (hit ? 3 : 1) + '">' + (hit ? '<animate attributeName="opacity" values="1;.45;1" dur="1.1s" repeatCount="indefinite"/>' : '') + '</rect>';
-        if (hit) out += '<text x="' + (x + cw / 2) + '" y="' + (y + ch / 2 + 4) + '" text-anchor="middle" font-size="9" font-weight="800" fill="#14181f">' + esc(label || '') + '</text>';
+    var RR = rackRows(r), ox = RK.ox, iw = RK.iw, W = ox + iw + 20, H = RR.bottom + 44, col = MAP_COLORS[rackModelOf(r)] || MAP_COLORS[''], out = '', target = null;
+    out += '<rect x="' + (ox - 6) + '" y="' + (RK.oy - 6) + '" width="' + (iw + 12) + '" height="' + (RR.bottom - RK.oy + 12) + '" rx="4" fill="none" stroke="' + col + '" stroke-width="6"/>';
+    RR.rows.forEach(function (q) {
+      var cw = iw / q.n, tote = q.t === 'TOTE';
+      out += '<text x="' + (ox - 12) + '" y="' + (q.y + q.h / 2) + '" text-anchor="end" font-size="11" font-weight="700" fill="#5f6672">Shelf ' + q.shelf + '</text>' +
+        '<text x="' + (ox - 12) + '" y="' + (q.y + q.h / 2 + 11) + '" text-anchor="end" font-size="8.5" fill="' + (tote ? '#5f6672' : '#1e6fd9') + '">' + (tote ? 'white ×' : 'blue ×') + q.n + '</text>';
+      for (var sl = 1; sl <= q.n; sl++) {
+        var x = ox + (sl - 1) * cw, hit = pl && pl.shelf === q.shelf && pl.slot === sl, pad = Math.min(3, cw * .08);
+        if (hit) target = [x + cw / 2, q.y + q.h / 2];
+        out += '<rect x="' + (x + pad) + '" y="' + (q.y + 4) + '" width="' + Math.max(2, cw - 2 * pad) + '" height="' + (q.h - 8) + '" rx="3" fill="' + (hit ? '#ffd400' : tote ? '#ffffff' : '#dbe9fb') + '" stroke="' + (hit ? '#b07d00' : tote ? '#9aa1ab' : '#7fb0ec') + '" stroke-width="' + (hit ? 3 : 1.2) + '">' + (hit ? '<animate attributeName="opacity" values="1;.45;1" dur="1.1s" repeatCount="indefinite"/>' : '') + '</rect>';
+        if (hit) out += '<text x="' + (x + cw / 2) + '" y="' + (q.y + q.h / 2 + 3) + '" text-anchor="middle" font-size="' + Math.min(9, cw / 5.5) + '" font-weight="800" fill="#14181f">' + esc(label || '') + '</text>';
+        else if (q.n <= 12) out += '<text x="' + (x + cw / 2) + '" y="' + (q.y + q.h - 7) + '" text-anchor="middle" font-size="7.5" fill="#9aa1ab">' + sl + '</text>';
       }
-      out += '<line x1="' + (ox - 3) + '" y1="' + (y + ch) + '" x2="' + (ox + cols * cw + 3) + '" y2="' + (y + ch) + '" stroke="#9aa1ab" stroke-width="2"/>';
-    }
-    for (var c2 = 1; c2 <= cols; c2++) out += '<text x="' + (ox + (c2 - .5) * cw) + '" y="' + (oy + rows * ch + 16) + '" text-anchor="middle" font-size="10" fill="#5f6672">' + c2 + '</text>';
-    out += '<text x="' + (ox + cols * cw / 2) + '" y="' + (oy + rows * ch + 30) + '" text-anchor="middle" font-size="10" fill="#9aa1ab">boxes counted from your left →</text>';
-    var manX = 34, manY = H - 6, s = 1.5;
-    if (pl) {   // arm towards the lit box
-      var tx = ox + (pl.slot - .5) * cw, ty = oy + (rows - pl.shelf) * ch + ch / 2, ang = Math.atan2(ty - (manY - 18 * s), tx - manX) * 180 / Math.PI;
-      out += stickman(manX, manY, { point: ang, size: s });
-    } else out += stickman(manX, manY, { size: s });
+      out += '<line x1="' + (ox - 3) + '" y1="' + (q.y + q.h) + '" x2="' + (ox + iw + 3) + '" y2="' + (q.y + q.h) + '" stroke="#9aa1ab" stroke-width="2"/>';
+    });
+    out += '<text x="' + (ox + iw / 2) + '" y="' + (RR.bottom + 16) + '" text-anchor="middle" font-size="10" fill="#9aa1ab">boxes counted from your left →</text>';
+    var manX = 34, manY = H - 6, sz = 1.5;
+    if (target) out += stickman(manX, manY, { point: Math.atan2(target[1] - (manY - 18 * sz), target[0] - manX) * 180 / Math.PI, size: sz });
+    else out += stickman(manX, manY, { size: sz });
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' + out + '</svg>';
   }
   var walkTimer = null;
@@ -1458,17 +1521,17 @@
       if ($('wayPlace')) $('wayPlace').onclick = function () { askPlace(boxes[0].loc, renderMap); };
       return;
     }
-    var pl = placeOf(l.loc), r = rackOn(m, pl.rack), mk = rackModelOf(r), path = walkPath(m, frontPoint(r, pl.slot));
-    var col = MAP_COLORS[mk] || MAP_COLORS[''];
+    var pl = placeOf(l.loc), r = rackOn(m, pl.rack), mk = rackModelOf(r), path = walkPath(m, frontPoint(r, pl.slot, pl.shelf));
+    var col = MAP_COLORS[mk] || MAP_COLORS[''], lay = layersOf(r)[pl.shelf - 1], kindName = lay ? (lay.t === 'TOTE' ? 'white box' : 'blue bin') : '', kindPlural = lay ? (lay.t === 'TOTE' ? 'white boxes' : 'blue bins') : '';
     $('mapTop').innerHTML = topSvg(m, { hi: r.id, path: path });
     $('rackCard').style.display = ''; $('rackCap').textContent = 'Rack ' + r.id + ' from the front' + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '');
     $('mapRack').innerHTML = rackSvg(r, pl, l.loc);
     var others = withPlace.slice(1).map(function (x) { return x.loc + ' (' + placeText(placeOf(x.loc)) + ', ' + num(x.qty) + ' pcs)'; });
     $('mapSteps').innerHTML = '<div class="steps"><b>' + esc(p.name) + '</b> <span class="mono">' + esc(codeOf(p)) + '</span>' +
-      '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + r.id + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
+      '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + r.id + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + (r.name ? ' · ' + esc(r.name) : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
       '<li>Stand in front of the rack and face it.</li>' +
-      '<li>Count the shelves from the bottom: <b>' + ordinal(pl.shelf) + ' shelf</b>.</li>' +
-      '<li>Count the boxes from your left: <b>' + ordinal(pl.slot) + ' box</b>, label <b class="mono">' + esc(l.loc) + '</b>.</li>' +
+      '<li>Count the shelves from the bottom: <b>' + ordinal(pl.shelf) + ' shelf</b>' + (kindName ? ' (' + kindPlural + ')' : '') + '.</li>' +
+      '<li>Count the ' + (kindPlural || 'boxes') + ' from your left: <b>' + ordinal(pl.slot) + ' ' + (kindName || 'box') + '</b>, label <b class="mono">' + esc(l.loc) + '</b>.</li>' +
       '<li>Take <b>' + esc(p.name) + '</b> (' + num(l.qty) + ' in that box). Then use <b>− Take out</b> in the app.</li></ol>' +
       (others.length ? '<p class="hint">Also in: ' + esc(others.join(' · ')) + '</p>' : '') +
       '<div class="btns"><button type="button" class="big" id="wayAgain">▶ Walk again</button><button type="button" class="big go" id="wayOpen">Open the part</button></div></div>';
@@ -1491,7 +1554,7 @@
     var m = mapData(), cur = placeOf(loc) || {}, racks = m.racks.length ? m.racks.map(function (r) { return r.id; }) : RACKS.map(function (r) { return r.loc; });
     var rk = cur.rack && racks.indexOf(cur.rack) >= 0 ? cur.rack : racks[0];
     var draw = function () {
-      var r = rackOn(m, rk) || { id: rk, shelves: 6, slots: 8 }, sh = Math.min(cur.shelf || 1, r.shelves), sl = Math.min(cur.slot || 1, r.slots);
+      var r = rackOn(m, rk) || { id: rk, shelves: 6, slots: 8 }, LL = layersOf(r), sh = Math.min(cur.shelf || 1, LL.length), sl = Math.min(cur.slot || 1, LL[sh - 1].n);
       modal('<h3 class="formtitle">📍 Where is ' + esc(normLoc_(loc)) + '?</h3>' +
         '<label class="lbl">Rack</label><div class="rsrow">' + racks.map(function (id) { var rr = rackOn(m, id); return '<button type="button" class="rs' + (id === rk ? ' on' : '') + '" data-prk="' + id + '" style="' + (rr ? 'border-color:' + (MAP_COLORS[rackModelOf(rr)] || '') : '') + '">' + id + '</button>'; }).join('') + '</div>' +
         '<p class="hint">Tap the shelf and box in the rack below (shelf 1 is the bottom, boxes counted from the left).</p><div id="placePick">' + rackSvg(r, { shelf: sh, slot: sl }, normLoc_(loc)) + '</div>' +
@@ -1502,9 +1565,8 @@
       var svg = document.querySelector('#placePick svg');
       svg.addEventListener('click', function (e) {   // tap a box in the front view
         var pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; var q = pt.matrixTransform(svg.getScreenCTM().inverse());
-        var cols = r.slots, rows = r.shelves, c = Math.floor((q.x - 70) / 46) + 1, rr = rows - Math.floor((q.y - 14) / 34);
-        if (c < 1 || c > cols || rr < 1 || rr > rows) return;
-        cur.shelf = rr; cur.slot = c; draw();
+        var hit = rackHit(r, q.x, q.y); if (!hit) return;
+        cur.shelf = hit.shelf; cur.slot = hit.slot; draw();
       });
       $('placeSave').onclick = function () {
         var place = rk + '/' + cur.shelf + '/' + cur.slot;
@@ -1517,6 +1579,19 @@
     draw();
   }
 
+  /** Editor rows for a rack's shelves, top shelf first like the real rack. */
+  function shelvesEditor(r) {
+    var L = layersOf(r);
+    return '<div class="shelfed"><div class="shelfhead"><b>Shelves</b> (' + L.length + ') · quick: ' +
+      '<button type="button" data-ly="preset:tote">All white boxes</button><button type="button" data-ly="preset:bin">All blue bins</button><button type="button" data-ly="preset:mix">Top white, bottom blue</button>' +
+      '<button type="button" data-ly="add:0">+ Shelf on top</button></div>' +
+      L.map(function (x, i) { return { x: x, i: i }; }).reverse().map(function (o) {
+        return '<div class="shelfrow"><span class="snum">Shelf ' + (o.i + 1) + (o.i === 0 ? ' (bottom)' : '') + '</span>' +
+          '<select data-ly="t:' + o.i + '"><option value="BIN"' + (o.x.t === 'BIN' ? ' selected' : '') + '>Blue bins</option><option value="TOTE"' + (o.x.t === 'TOTE' ? ' selected' : '') + '>White boxes</option></select>' +
+          '<span class="grp"><button type="button" data-ly="n-:' + o.i + '">−</button><b>' + o.x.n + '</b><button type="button" data-ly="n+:' + o.i + '">+</button></span>' +
+          (L.length > 1 ? '<button type="button" data-ly="del:' + o.i + '" title="Remove this shelf">✕</button>' : '') + '</div>';
+      }).join('') + '</div>';
+  }
   /* ---- Map editor (supervisors): freeform ----
    * Drag to move.  Round handle: rotate (snaps every 5°).  Square handles: length and depth.  Or type the numbers.
    * Add racks, walls, workbenches, machines, pillars, floor areas and text.  The entrance can be moved and turned. */
@@ -1530,6 +1605,37 @@
   }
   function edKind(key) { return key === 'door' ? 'door' : key && key[0] === 'r' ? 'rack' : key ? (edItem(key) || {}).kind : null; }
   function r2(v, st) { st = st || .05; return Math.round(v / st) * st; }
+  /* Keyboard in the editor (laptop): Ctrl+C copy, Ctrl+V paste, Ctrl+D duplicate, Delete remove,
+   * arrows move 5 cm (Shift: 50 cm), R / Shift+R turn 90°, Esc deselect. */
+  var mapClip = null;   // {kind, item}
+  function edPaste(clip) {
+    var m = mapEd.m, c = JSON.parse(JSON.stringify(clip.item)), sh = toWorld({ x: 0, y: 0, a: c.a }, 0, -(c.d + .6));
+    c.x = Math.max(0, Math.min(m.W, c.x + sh[0])); c.y = Math.max(0, Math.min(m.H, c.y + sh[1]));
+    if (clip.kind === 'rack') {
+      var free = RACKS.map(function (x) { return x.loc; }).filter(function (id) { return !rackOn(m, id); });
+      if (!free.length) { toast('All 40 rack numbers are on the map', 'bad'); return; }
+      c.id = free[0]; m.racks.push(c); mapEd.sel = 'r' + c.id;
+    } else { m.items.push(c); mapEd.sel = 'i' + (m.items.length - 1); }
+    mapClip = { kind: clip.kind, item: JSON.parse(JSON.stringify(c)) };   // next paste goes one step further
+    drawEditor();
+  }
+  document.addEventListener('keydown', function (ev) {
+    if (!mapEd || current !== 'map' || !$('modal').classList.contains('hidden')) return;
+    var tg = ev.target.tagName; if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
+    var key = mapEd.sel, it = edItem(key), kind = edKind(key), ctrl = ev.ctrlKey || ev.metaKey, k = ev.key.toLowerCase();
+    if (ctrl && k === 'c' && it && kind !== 'door') { mapClip = { kind: kind, item: JSON.parse(JSON.stringify(it)) }; toast('Copied ' + (kind === 'rack' ? 'rack ' + it.id : (THINGS[kind] || {}).name) + '. Ctrl+V to paste.', 'good'); ev.preventDefault(); return; }
+    if (ctrl && k === 'v' && mapClip) { edPaste(mapClip); ev.preventDefault(); return; }
+    if (ctrl && k === 'd' && it && kind !== 'door') { edPaste({ kind: kind, item: it }); ev.preventDefault(); return; }
+    if (!it) return;
+    if ((ev.key === 'Delete' || ev.key === 'Backspace') && kind !== 'door') {
+      if (kind === 'rack') mapEd.m.racks = mapEd.m.racks.filter(function (x) { return x !== it; }); else mapEd.m.items.splice(Number(key.slice(1)), 1);
+      mapEd.sel = null; drawEditor(); ev.preventDefault(); return;
+    }
+    var step = ev.shiftKey ? .5 : .05, mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
+    if (mv) { it.x = r2(it.x + mv[0]); it.y = r2(it.y + mv[1]); drawEditor(); ev.preventDefault(); return; }
+    if (k === 'r' && !ctrl) { it.a = (((it.a || 0) + (ev.shiftKey ? -90 : 90)) % 360 + 360) % 360; drawEditor(); ev.preventDefault(); return; }
+    if (ev.key === 'Escape') { mapEd.sel = null; drawEditor(); }
+  });
   function edRedraw() { var g = document.querySelector('#mapTop #mapContent'); if (g) g.innerHTML = topInner(mapEd.m, { sel: mapEd.sel, edit: true }); }
   function drawEditor() {
     var e = mapEd, m = e.m;
@@ -1542,15 +1648,16 @@
     $('mapEdit').innerHTML = '<div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button>' +
       Object.keys(THINGS).map(function (k) { return '<button type="button" data-add="' + k + '">' + THINGS[k].name + '</button>'; }).join('') + '</div>' +
       '<div class="tools"><span class="grp">Room ' + num2('Width', m.W, .5, 'm') + num2('Depth', m.H, .5, 'm') + '</span></div>' +
+      '<p class="hint">On a laptop: <b>Ctrl+C</b> copy, <b>Ctrl+V</b> paste, <b>Ctrl+D</b> duplicate, <b>Delete</b> remove, <b>arrow keys</b> move (Shift = bigger steps), <b>R</b> turn 90°, <b>Esc</b> deselect.</p>' +
       '<p class="hint">Drag things to move them. Tap one to select it: the <b>round</b> handle turns it, the <b>square</b> handles change length and depth. The white edge of a rack is its front, where people stand. The arrow of the entrance points into the room.</p>' +
       (it ? '<div class="rkpanel"><b>' + (kind === 'rack' ? 'Rack ' + it.id : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name) + '</b>' +
         (kind === 'rack' ? '<select data-f="id">' + [it.id].concat(free).map(function (id) { return '<option' + (id === it.id ? ' selected' : '') + '>' + id + '</option>'; }).join('') + '</select>' +
+          '<label class="grp">Name <input data-f="name" value="' + esc(it.name || '') + '" placeholder="e.g. Brake parts" style="width:140px"></label>' +
           '<select data-f="model">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((it.model || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' : '') +
         (kind === 'area' || kind === 'label' ? '<label class="grp">Text <input data-f="text" value="' + esc(it.text || '') + '" placeholder="' + (kind === 'area' ? 'e.g. Scooter parking' : 'e.g. Office') + '" style="width:150px"></label>' : '') +
         (kind !== 'door' ? num2('Length', it.w, .05, 'm') + num2('Depth ', it.d, .05, 'm') : num2('Length', it.w, .05, 'm')) +
         num2('Angle', it.a || 0, 5, '°') + '<button type="button" data-rot="-90">↺ 90°</button><button type="button" data-rot="90">↻ 90°</button>' +
-        (kind === 'rack' ? '<span class="grp">Shelves <button type="button" data-st="shelves-">−</button><b>' + it.shelves + '</b><button type="button" data-st="shelves+">+</button></span>' +
-          '<span class="grp">Boxes per shelf <button type="button" data-st="slots-">−</button><b>' + it.slots + '</b><button type="button" data-st="slots+">+</button></span>' : '') +
+        (kind === 'rack' ? shelvesEditor(it) : '') +
         (kind !== 'door' ? '<button type="button" data-act="dup">⧉ Copy</button><button type="button" data-act="del">🗑 Remove</button>' : '') +
         '<button type="button" data-act="done">✓ Done</button></div>' : '<p class="hint">Tap something on the map to change it.</p>') +
       '<div class="btns"><button type="button" class="big" id="mapEdCancel">Cancel</button><button type="button" class="big ok" id="mapEdSave">Save map</button></div>';
@@ -1580,8 +1687,8 @@
     qsa('#mapEdit [data-add]').forEach(function (b) { b.onclick = function () {
       var k = b.dataset.add, cx = r2(m.W / 2, .5), cy = r2(m.H / 2, .5);
       if (k === 'rack') {
-        if (!free.length) return toast('All 15 racks are on the map', 'bad');
-        m.racks.push({ id: free[0], x: cx, y: cy, w: 2, d: .5, a: 0, shelves: 5, slots: 6, model: rackModel[free[0]] || '' }); e.sel = 'r' + free[0];
+        if (!free.length) return toast('All 40 rack numbers are on the map', 'bad');
+        var nr = { id: free[0], x: cx, y: cy, w: 2, d: .5, a: 0, model: rackModel[free[0]] || '' }; setLayers(nr, [{ t: 'BIN', n: 6 }, { t: 'BIN', n: 6 }, { t: 'BIN', n: 6 }, { t: 'BIN', n: 6 }, { t: 'TOTE', n: 4 }, { t: 'TOTE', n: 4 }, { t: 'TOTE', n: 4 }]); m.racks.push(nr); e.sel = 'r' + free[0];
       } else {
         var T = THINGS[k]; m.items.push({ kind: k, x: cx, y: cy, w: T.w, d: T.d, a: 0, text: k === 'label' ? 'Text' : '' }); e.sel = 'i' + (m.items.length - 1);
       }
@@ -1605,10 +1712,24 @@
       drawEditor();
     }; });
     qsa('#mapEdit [data-rot]').forEach(function (b) { b.onclick = function () { it.a = (((it.a || 0) + Number(b.dataset.rot)) % 360 + 360) % 360; drawEditor(); }; });
-    qsa('#mapEdit [data-st]').forEach(function (b) { b.onclick = function () {
-      var f = b.dataset.st.slice(0, -1), up = b.dataset.st.slice(-1) === '+';
-      it[f] = Math.max(1, Math.min(f === 'shelves' ? 12 : 20, it[f] + (up ? 1 : -1))); drawEditor();
-    }; });
+    if (kind === 'rack') {
+      var L = layersOf(it).map(function (x) { return { t: x.t, n: x.n }; });
+      qsa('#mapEdit [data-ly]').forEach(function (b) { b[b.tagName === 'SELECT' ? 'onchange' : 'onclick'] = function () {
+        var a = b.dataset.ly.split(':'), i = Number(a[1]);
+        if (a[0] === 't') L[i].t = b.value;
+        else if (a[0] === 'n-') L[i].n = Math.max(1, L[i].n - 1);
+        else if (a[0] === 'n+') L[i].n = Math.min(30, L[i].n + 1);
+        else if (a[0] === 'del') { if (L.length > 1) L.splice(i, 1); }
+        else if (a[0] === 'add') L.push({ t: L.length ? L[L.length - 1].t : 'BIN', n: L.length ? L[L.length - 1].n : 6 });
+        else if (a[0] === 'preset') {
+          var n = L.length;
+          if (a[1] === 'tote') L = L.map(function () { return { t: 'TOTE', n: 4 }; });
+          else if (a[1] === 'bin') L = L.map(function () { return { t: 'BIN', n: 6 }; });
+          else { var top = Math.min(3, Math.max(1, n - 1)); L = L.map(function (x, k) { return k >= n - top ? { t: 'TOTE', n: 4 } : { t: 'BIN', n: 6 }; }); }
+        }
+        setLayers(it, L); drawEditor();
+      }; });
+    }
     qsa('#mapEdit [data-f]').forEach(function (inp) {
       inp[inp.tagName === 'SELECT' ? 'onchange' : 'oninput'] = function () {
         var f = inp.dataset.f;
@@ -1622,7 +1743,7 @@
       else if (a === 'del') { if (kind === 'rack') m.racks = m.racks.filter(function (x) { return x !== it; }); else m.items.splice(Number(key.slice(1)), 1); e.sel = null; }
       else if (a === 'dup') {
         var c = JSON.parse(JSON.stringify(it)), sh = toWorld({ x: 0, y: 0, a: it.a }, 0, -(it.d + .6)); c.x = it.x + sh[0]; c.y = it.y + sh[1];
-        if (kind === 'rack') { if (!free.length) return toast('All 15 racks are on the map', 'bad'); c.id = free[0]; m.racks.push(c); e.sel = 'r' + c.id; }
+        if (kind === 'rack') { if (!free.length) return toast('All 40 rack numbers are on the map', 'bad'); c.id = free[0]; m.racks.push(c); e.sel = 'r' + c.id; }
         else { m.items.push(c); e.sel = 'i' + (m.items.length - 1); }
       }
       drawEditor();
@@ -1846,7 +1967,7 @@
   $('labelSearch').addEventListener('input', renderLabels);
   $('labelNew').addEventListener('change', function () { lbSel = {}; renderLabels(); });
   $('labelAll').onchange = function () { var on = this.checked; (lbMode === 'PART' ? labelPool().slice(0, 300) : labelPool()).forEach(function (l) { lbSel[l.loc] = on; }); renderLabels(); };
-  var RACKS = []; for (var rk = 1; rk <= 15; rk++) RACKS.push({ loc: 'R' + ('0' + rk).slice(-2), type: 'RACK' });
+  var RACKS = []; for (var rk = 1; rk <= 40; rk++) RACKS.push({ loc: 'R' + ('0' + rk).slice(-2), type: 'RACK' });
   /* Code 128 (set B) barcode as SVG: every phone scanner and USB scanner reads it.  Drawn here, so no internet is needed. */
   var C128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
   function code128Svg(text) {

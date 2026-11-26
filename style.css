@@ -514,3 +514,10 @@ body.sup .sup-hide { display: none !important; }
 .boxcard .bplace { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 12px; background: #f6f7f9; font-size: 12.5px; }
 .boxcard .bplace span { flex: 1; min-width: 160px; }
 .wayBtn { width: 100%; margin: 8px 0 4px; }
+
+/* Rack shelves editor */
+.shelfed { width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; }
+.shelfed .shelfhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 13px; }
+.shelfed .shelfrow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px 0; border-top: 1px solid #f0f1f3; }
+.shelfed .snum { min-width: 108px; font-weight: 700; font-size: 13px; }
+.shelfed select { width: auto; }
