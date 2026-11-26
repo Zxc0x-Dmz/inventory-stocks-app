@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.33 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.34 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1252,6 +1252,11 @@
     chair: { name: 'Chair', w: 0.5, d: 0.5, fill: '#78909c' },
     tools: { name: 'Tool cabinet', short: 'Tools', w: 1.2, d: 0.6, fill: '#c62828' },
     boxes: { name: 'Boxes / pallet', short: 'Boxes', w: 1.2, d: 1, fill: '#d7a86e' },
+    hydrant: { name: 'Fire hydrant box', short: 'Fire hose', below: true, w: 0.9, d: 0.3, fill: '#d32f2f' },
+    extinguisher: { name: 'Fire extinguisher', short: 'Extinguisher', below: true, w: 0.3, d: 0.3, fill: '#e53935' },
+    scootC1: { name: 'Scooter C1', short: 'C1', below: true, w: 1.2, d: 0.5, fill: '#f57c00' },
+    scoot400: { name: 'Scooter 400C', short: '400C', below: true, w: 1.2, d: 0.5, fill: '#1565c0' },
+    ebike: { name: 'E-bike A200', short: 'A200', below: true, w: 1.8, d: 0.6, fill: '#1f9d55' },
     label: { name: 'Text', w: 2, d: 0.5, walk: true }
   };
   function blankMap() { return { v: 2, W: 12, H: 8, w: 24, h: 16, door: { x: 0.1, y: 4, w: 1, d: 0.2, a: 270 }, racks: [], items: [] }; }
@@ -1393,6 +1398,37 @@
       for (var i = 1; i < n; i++) { var x = -w / 2 + i * w / n; out += '<line x1="' + x + '" y1="' + (-d / 2 + 3) + '" x2="' + x + '" y2="' + (d / 2 - 3) + '" stroke="#ff8a80" stroke-width="1.5"/>'; }
       return out;
     },
+    hydrant: function (w, d, T) {   // wall cabinet with a rolled hose
+      var r = Math.min(d * .36, w * .2);
+      return '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="2" fill="' + T.fill + '" stroke="#8e0000" stroke-width="2"/>' +
+        '<circle cx="' + (-w / 4) + '" cy="0" r="' + r + '" fill="none" stroke="#fff" stroke-width="2"/><circle cx="' + (-w / 4) + '" cy="0" r="' + r * .45 + '" fill="none" stroke="#fff" stroke-width="1.5"/>' +
+        '<rect x="' + (w / 8) + '" y="' + (-d / 2 + 3) + '" width="' + (w / 4) + '" height="' + (d - 6) + '" rx="1" fill="#ffcdd2"/>';
+    },
+    extinguisher: function (w, d, T) {   // bottle seen from above, with handle and hose
+      var r = Math.min(w, d) / 2;
+      return '<circle r="' + r + '" fill="' + T.fill + '" stroke="#8e0000" stroke-width="2"/><circle r="' + r * .45 + '" fill="#212121"/>' +
+        '<path d="M0,0 Q' + r * 1.1 + ',' + (-r * .2) + ' ' + r * 1.25 + ',' + r * .7 + '" fill="none" stroke="#212121" stroke-width="2" stroke-linecap="round"/>';
+    },
+    scootC1: function (w, d, T) { return FURN.scooter(w, d, T); },
+    scoot400: function (w, d, T) { return FURN.scooter(w, d, T); },
+    scooter: function (w, d, T) {   // kick scooter from above: wheels, deck, stem, handlebar (front = right)
+      var wl = w * .17, wt = Math.max(3, d * .2), dk = d * .42;
+      return '<rect x="' + (-w / 2) + '" y="' + (-wt / 2) + '" width="' + wl + '" height="' + wt + '" rx="' + wt / 2 + '" fill="#212121"/>' +
+        '<rect x="' + (w / 2 - wl) + '" y="' + (-wt / 2) + '" width="' + wl + '" height="' + wt + '" rx="' + wt / 2 + '" fill="#212121"/>' +
+        '<rect x="' + (-w / 2 + wl * .6) + '" y="' + (-dk / 2) + '" width="' + (w * .66) + '" height="' + dk + '" rx="' + dk / 3 + '" fill="' + T.fill + '" stroke="rgba(0,0,0,.35)" stroke-width="1"/>' +
+        '<rect x="' + (-w / 2 + wl * .9) + '" y="' + (-dk / 2 + 2) + '" width="' + (w * .45) + '" height="' + Math.max(1, dk - 4) + '" rx="2" fill="#37474f" opacity=".55"/>' +
+        '<line x1="' + (w / 2 - wl * 1.15) + '" y1="' + (-d / 2 + 1) + '" x2="' + (w / 2 - wl * 1.15) + '" y2="' + (d / 2 - 1) + '" stroke="#212121" stroke-width="3" stroke-linecap="round"/>' +
+        '<circle cx="' + (w / 2 - wl * 1.15) + '" cy="0" r="' + Math.max(2.5, d * .14) + '" fill="' + T.fill + '" stroke="#212121" stroke-width="1.5"/>';
+    },
+    ebike: function (w, d, T) {   // bicycle from above: thin tyres, frame, saddle, handlebar (front = right)
+      var wl = w * .3, wt = Math.max(3, d * .14);
+      return '<rect x="' + (-w / 2) + '" y="' + (-wt / 2) + '" width="' + wl + '" height="' + wt + '" rx="' + wt / 2 + '" fill="#212121"/>' +
+        '<rect x="' + (w / 2 - wl) + '" y="' + (-wt / 2) + '" width="' + wl + '" height="' + wt + '" rx="' + wt / 2 + '" fill="#212121"/>' +
+        '<rect x="' + (-w * .28) + '" y="' + (-d * .13) + '" width="' + (w * .56) + '" height="' + (d * .26) + '" rx="' + d * .12 + '" fill="' + T.fill + '" stroke="rgba(0,0,0,.35)" stroke-width="1"/>' +
+        '<rect x="' + (-w * .2) + '" y="' + (-d * .16) + '" width="' + (w * .16) + '" height="' + (d * .32) + '" rx="' + d * .1 + '" fill="#263238"/>' +
+        '<line x1="' + (w * .3) + '" y1="' + (-d / 2 + 1) + '" x2="' + (w * .3) + '" y2="' + (d / 2 - 1) + '" stroke="#212121" stroke-width="3" stroke-linecap="round"/>' +
+        '<rect x="' + (w * .3 - 3) + '" y="' + (-d / 2) + '" width="6" height="' + (d * .18) + '" rx="2" fill="#212121"/><rect x="' + (w * .3 - 3) + '" y="' + (d / 2 - d * .18) + '" width="6" height="' + (d * .18) + '" rx="2" fill="#212121"/>';
+    },
     boxes: function (w, d, T) {
       var out = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="#8d6e63" opacity=".35"/>', cols = Math.max(1, Math.round(w / 22)), rows = Math.max(1, Math.round(d / 22)), cw = w / cols, ch = d / rows;
       for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) {
@@ -1421,8 +1457,8 @@
       if (txt && kind === 'label') body += '<text x="0" y="5" text-anchor="middle" font-size="16" font-weight="800" fill="#0f4fa3">' + esc(txt) + '</text>';
       else if (txt) {   // every object shows what it is: inside when it fits, otherwise just below it
         var light = { area: 1, walkway: 1, boxes: 1 }[kind], fit = Math.min(12, (w - 6) / (txt.length * .62), d * .6), fs, ty, fill, halo;
-        if (fit >= 9) { fs = fit; ty = fs * .36; fill = light ? '#14181f' : '#fff'; halo = light ? 'rgba(255,255,255,.85)' : 'rgba(0,0,0,.35)'; }
-        else { fs = 10; ty = d / 2 + 11; fill = '#14181f'; halo = 'rgba(255,255,255,.95)'; }
+        if (fit >= 9 && !T.below) { fs = fit; ty = fs * .36; fill = light ? '#14181f' : '#fff'; halo = light ? 'rgba(255,255,255,.85)' : 'rgba(0,0,0,.35)'; }
+        else { fs = T.below ? 9.5 : 10; ty = d / 2 + 10; fill = '#14181f'; halo = 'rgba(255,255,255,.95)'; }
         body += '<text x="0" y="' + ty.toFixed(1) + '" text-anchor="middle" font-size="' + fs.toFixed(1) + '" font-weight="800" fill="' + fill + '" stroke="' + halo + '" stroke-width="' + (fs / 4).toFixed(1) + '" paint-order="stroke" stroke-linejoin="round" pointer-events="none">' + esc(txt) + '</text>';
       }
       if (kind === 'label' && o.edit) body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="rgba(30,111,217,.06)" stroke="#9fc3f0" stroke-dasharray="4 3"/>' + body;
