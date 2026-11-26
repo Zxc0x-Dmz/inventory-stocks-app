@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.30 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.31 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1260,13 +1260,25 @@
     m.door = { x: (dx + .5) * H, y: (dy + .5) * H, w: 1, d: 0.2, a: dx === 0 ? 270 : dx === o.w - 1 ? 90 : dy === 0 ? 0 : dy === o.h - 1 ? 180 : 270 };
     return m;
   }
-  function mapData() {
+  /* The saved setting holds the LIVE map (what everyone sees) and, inside it, an optional DRAFT that only
+   * supervisors see in the editor until they press Deploy. */
+  function mapRaw() {
     var row = (snap.settings || []).filter(function (r) { return r.key === 'map'; })[0], m = null;
     try { m = row && JSON.parse(row.value); } catch (e) { m = null; }
-    if (!m || !m.racks) return blankMap();
-    if (m.v !== 2) m = migrateMap(m);
-    m.items = m.items || [];
     return m;
+  }
+  function fixMap(m) { if (!m || !m.racks) return blankMap(); if (m.v !== 2) m = migrateMap(m); m.items = m.items || []; delete m.draft; delete m.draftAt; delete m.draftBy; return m; }
+  function mapData() { var raw = mapRaw(); return fixMap(raw ? JSON.parse(JSON.stringify(raw)) : null); }
+  function mapDraft() { var raw = mapRaw(); return raw && raw.draft ? { m: fixMap(JSON.parse(JSON.stringify(raw.draft))), at: raw.draftAt || '', by: raw.draftBy || '' } : null; }
+  /** Saves {live, draft} in one go.  draft = null removes it. */
+  function storeMap(live, draft) {
+    var o = JSON.parse(JSON.stringify(live));
+    o.v = 2; o.w = Math.max(6, Math.round(o.W * 2)); o.h = Math.max(6, Math.round(o.H * 2));
+    if (draft) { var d = JSON.parse(JSON.stringify(draft)); d.v = 2; d.w = Math.max(6, Math.round(d.W * 2)); d.h = Math.max(6, Math.round(d.H * 2)); delete d.draft; o.draft = d; var nd = new Date(); o.draftAt = nd.getFullYear() + '-' + ('0' + (nd.getMonth() + 1)).slice(-2) + '-' + ('0' + nd.getDate()).slice(-2) + ' ' + ('0' + nd.getHours()).slice(-2) + ':' + ('0' + nd.getMinutes()).slice(-2); o.draftBy = cfg.user || ''; }
+    return api('saveMap', { map: o }).then(function () {
+      var row = (snap.settings = snap.settings || []).filter(function (x) { return x.key === 'map'; })[0];
+      if (row) row.value = JSON.stringify(o); else snap.settings.push({ key: 'map', value: JSON.stringify(o) });
+    });
   }
   function rackOn(m, id) { return m.racks.filter(function (r) { return r.id === id; })[0]; }
   function rackModelOf(r) { return (r && r.model) || rackModel[r && r.id] || ''; }
@@ -1506,7 +1518,10 @@
   function renderMap() {
     var m = mapData();
     $('mapEditBtns').style.display = isSup() && !mapEd ? '' : 'none';
-    if (mapEd) { $('mapFind').style.display = 'none'; $('mapSteps').innerHTML = ''; $('rackCard').style.display = 'none'; $('mapCap').textContent = 'Workshop (top view) · editing'; return drawEditor(); }
+    if (mapEd) { $('mapDraftNote').innerHTML = ''; $('mapFind').style.display = 'none'; $('mapSteps').innerHTML = ''; $('rackCard').style.display = 'none'; $('mapCap').textContent = 'Workshop (top view) · editing'; return drawEditor(); }
+    var dft = isSup() && mapDraft();
+    $('mapDraftNote').innerHTML = dft ? '<div class="draftnote">📝 You have a <b>draft</b> of the map that is not live yet (saved ' + esc(dft.at) + (dft.by ? ' by ' + esc(dft.by) : '') + '). <button type="button" class="pvbtn" id="draftOpen">✏ Continue editing</button></div>' : '';
+    if ($('draftOpen')) $('draftOpen').onclick = function () { $('mapEditOpen').onclick(); };
     $('mapFind').style.display = ''; $('mapEdit').style.display = 'none'; $('mapCap').textContent = 'Workshop (top view)'; $('tab-map').classList.remove('editing'); $('layersCard').style.display = 'none';
     if (!m.racks.length) {
       $('mapTop').innerHTML = topSvg(m);
@@ -1659,7 +1674,7 @@
    * Drag to move.  Round handle: rotate (snaps every 5°).  Square handles: length and depth.  Or type the numbers.
    * Add racks, walls, workbenches, machines, pillars, floor areas and text.  The entrance can be moved and turned. */
   var mapEd = null;   // {m, sel, drag}
-  $('mapEditOpen').onclick = function () { mapEd = { m: JSON.parse(JSON.stringify(mapData())), sel: null, drag: null }; renderMap(); };
+  $('mapEditOpen').onclick = function () { var dr = mapDraft(); mapEd = { m: JSON.parse(JSON.stringify(dr ? dr.m : mapData())), sel: null, drag: null, fromDraft: !!dr }; renderMap(); };
   function edItem(key) {
     var m = mapEd.m; if (!key) return null;
     if (key === 'door') return m.door;
@@ -1770,7 +1785,6 @@
     setSel(keys); drawEditor();
     if (keys.length > 1) toast('Pasted ' + keys.length + ' objects. They are selected: drag them into place.', 'good');
   }
-  function confirmLeave() { return window.confirm ? true : true; }   // changes are only kept after Save map
   /** Undo / redo: step back and forward through the remembered versions of the map (up to 100). */
   function edHistory(step) {
     var e = mapEd; if (!e || !e.hist) return;
@@ -1819,7 +1833,7 @@
     var keys = selList(), ctrl = ev.ctrlKey || ev.metaKey, k = ev.key.toLowerCase(), m = mapEd.m, sn = mapEd.snap !== false;
     if (ctrl && k === 'z') { edHistory(ev.shiftKey ? 1 : -1); ev.preventDefault(); return; }
     if (ctrl && k === 'y') { edHistory(1); ev.preventDefault(); return; }
-    if (ctrl && k === 's') { ev.preventDefault(); if ($('mapEdSave')) $('mapEdSave').click(); return; }
+    if (ctrl && k === 's') { ev.preventDefault(); if ($('mapEdSave')) $('mapEdSave').click(); return; }   // Save draft
     if (ev.key === '?') { shortcutHelp(); ev.preventDefault(); return; }
     if (ctrl && k === 'a') { setSel(m.racks.map(function (r) { return 'r' + r.id; }).concat(m.items.map(function (x, n) { return 'i' + n; }))); drawEditor(); ev.preventDefault(); return; }
     if (ctrl && k === 'c' && keys.length) { mapClip = copyList(keys); if (mapClip.length) toast('Copied ' + mapClip.length + ' object' + (mapClip.length > 1 ? 's' : '') + '. Ctrl+V to paste.', 'good'); ev.preventDefault(); return; }
@@ -1864,7 +1878,9 @@
         (kind === 'rack' ? shelvesEditor(it) : '') +
         (kind !== 'door' ? '<button type="button" data-act="dup">⧉ Copy</button><button type="button" data-act="del">🗑 Remove</button>' : '') +
         '<button type="button" data-act="done">✓ Done</button></div>' : '<p class="hint">' + (many ? e.multi.length + ' objects selected. Use the bar on the map to copy, remove, line up or space them evenly; drag one to move them all.' : 'Tap something on the map to change it. Shift+click or drag a box on the floor to select several; Ctrl+A selects everything.') + '</p>') +
-      '<div class="btns"><button type="button" class="big" id="mapEdCancel">Cancel</button><button type="button" class="big ok" id="mapEdSave">Save map</button></div>';
+      '<div class="draftbar">' + (mapDraft() ? '📝 <b>Draft</b> saved ' + esc(mapDraft().at) + (mapDraft().by ? ' by ' + esc(mapDraft().by) : '') + '. Mechanics still see the live map.' : '📝 Not saved yet. <b>Save draft</b> keeps your work without changing what mechanics see.') + '</div>' +
+      '<div class="btns three"><button type="button" class="big" id="mapEdCancel">Close</button><button type="button" class="big ok" id="mapEdSave">💾 Save draft</button><button type="button" class="big go" id="mapEdDeploy">🚀 Deploy to live</button></div>' +
+      (mapDraft() ? '<p class="hint" style="text-align:center"><button type="button" class="pvbtn" id="mapEdDiscard">🗑 Discard the draft (go back to the live map)</button></p>' : '');
 
     var pt = function (ev) { var q = svg.createSVGPoint(); q.x = ev.clientX; q.y = ev.clientY; var r = q.matrixTransform(svg.getScreenCTM().inverse()); return [r.x / MS, r.y / MS]; };
     var keepIn = function (o) { o.x = Math.max(0, Math.min(m.W, o.x)); o.y = Math.max(0, Math.min(m.H, o.y)); };
@@ -2026,16 +2042,38 @@
       else if (a === 'dup') { edPaste(copyList([key])); return; }
       drawEditor();
     }; });
-    $('mapEdCancel').onclick = function () { if (mapEd.hi > 0 && !confirmLeave()) return; mapEd = null; renderMap(); };
-    $('mapEdSave').onclick = function () {
-      m.v = 2; m.w = Math.max(6, Math.round(m.W * 2)); m.h = Math.max(6, Math.round(m.H * 2));
-      var bad = m.racks.filter(function (x) { return !walkPath(m, frontPoint(x, 1)); }).map(function (x) { return x.id; });
-      api('saveMap', { map: m }).then(function () {
-        var row = (snap.settings = snap.settings || []).filter(function (x) { return x.key === 'map'; })[0];
-        if (row) row.value = JSON.stringify(m); else snap.settings.push({ key: 'map', value: JSON.stringify(m) });
-        m.racks.forEach(function (x) { if (x.model) rackModel[x.id] = x.model; }); save('inv.rackModel', rackModel);
-        mapEd = null; toast('Workshop map saved' + (bad.length ? '. Nobody can walk to the front of ' + bad.join(', ') + ': check walls and which way the rack faces.' : ''), bad.length ? 'bad' : 'good'); renderMap();
+    $('mapEdCancel').onclick = function () {
+      var saved = mapDraft() ? JSON.stringify(mapDraft().m) : JSON.stringify(mapData()), now = JSON.stringify(fixMap(JSON.parse(JSON.stringify(m))));
+      if (saved === now) { mapEd = null; renderMap(); return; }
+      modal('<h3 class="formtitle">Close without saving?</h3><p>You have changes that are not saved as a draft.</p>' +
+        '<div class="btns"><button type="button" class="big" data-x="no">Keep editing</button><button type="button" class="big bad" data-x="yes">Close and lose them</button></div>', function (x) { if (x === 'yes') { mapEd = null; renderMap(); } });
+    };
+    var problems = function () { return m.racks.filter(function (x) { return !walkPath(m, frontPoint(x, 1)); }).map(function (x) { return x.id; }); };
+    $('mapEdSave').onclick = function () {   // draft: only supervisors see it
+      storeMap(mapData(), m).then(function () {
+        toast('Draft saved. Mechanics still see the live map. Press 🚀 Deploy to live when it is ready.', 'good'); drawEditor();
       }).catch(function (er) { toast(er.business ? er.message : 'Saving needs a connection. Try again.', 'bad'); });
+    };
+    $('mapEdDeploy').onclick = function () {
+      var bad = problems();
+      modal('<h3 class="formtitle">🚀 Make this the live map?</h3><p>Everyone will see this map in <b>Map</b> and when they follow <b>Show me the way</b>.</p>' +
+        '<p class="hint">' + m.racks.length + ' racks · ' + m.items.length + ' other things · room ' + m.W + ' × ' + m.H + ' m</p>' +
+        (bad.length ? '<p style="color:var(--bad);font-weight:700">Nobody can walk to the front of ' + esc(bad.join(', ')) + '. Check walls and which way the rack faces.</p>' : '') +
+        '<div class="btns"><button type="button" class="big" data-x="no">Not yet</button><button type="button" class="big go" data-x="yes">Deploy to live</button></div>', function (x) {
+        if (x !== 'yes') return;
+        storeMap(m, null).then(function () {
+          m.racks.forEach(function (x2) { if (x2.model) rackModel[x2.id] = x2.model; }); save('inv.rackModel', rackModel);
+          mapEd = null; toast('The new map is live for everyone.', 'good'); renderMap();
+        }).catch(function (er) { toast(er.business ? er.message : 'Deploying needs a connection. Try again.', 'bad'); });
+      });
+    };
+    if ($('mapEdDiscard')) $('mapEdDiscard').onclick = function () {
+      modal('<h3 class="formtitle">Discard the draft?</h3><p>Your unpublished changes are deleted. The live map stays as it is.</p>' +
+        '<div class="btns"><button type="button" class="big" data-x="no">Keep it</button><button type="button" class="big bad" data-x="yes">Discard</button></div>', function (x) {
+        if (x !== 'yes') return;
+        storeMap(mapData(), null).then(function () { mapEd = null; toast('Draft discarded. Back to the live map.', 'good'); renderMap(); })
+          .catch(function (er) { toast(er.business ? er.message : 'Needs a connection. Try again.', 'bad'); });
+      });
     };
   }
 

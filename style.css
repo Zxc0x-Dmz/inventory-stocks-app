@@ -558,3 +558,8 @@ body.sup .sup-hide { display: none !important; }
 table.keys { width: 100%; border-collapse: collapse; font-size: 14px; }
 table.keys td { padding: 5px 6px; border-bottom: 1px solid #f0f1f3; }
 table.keys kbd { font-family: Consolas, monospace; background: #f6f7f9; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; font-size: 12.5px; white-space: nowrap; }
+
+.draftbar { background: #fff8ec; border: 1px solid #f0b44c; border-radius: 10px; padding: 8px 12px; font-size: 13.5px; margin: 8px 0; }
+.draftnote { background: #fff8ec; border: 2px solid #f0b44c; border-radius: 14px; padding: 10px 14px; margin: 0 0 10px; font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btns.three { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+@media (max-width: 520px) { .btns.three { grid-template-columns: 1fr; } }
