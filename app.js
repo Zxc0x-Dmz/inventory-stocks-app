@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.40 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.41 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2552,7 +2552,7 @@
   var lbMode = 'BIN', lbSel = {};
   var LAYOUTS = { '3x8': [3, 8, 70, 37], '3x7': [3, 7, 70, 42.3], '2x7': [2, 7, 99.1, 38.1], '2x4': [2, 4, 99.1, 67.7] };
   qsa('#labelSeg button').forEach(function (b) {
-    b.onclick = function () { lbMode = b.dataset.lb; lbSel = {}; $('labelSearch').value = ''; $('labelNew').checked = lbMode !== 'PART'; $('labelAll').checked = false; qsa('#labelSeg button').forEach(function (x) { x.classList.toggle('on', x === b); }); renderLabels(); };
+    b.onclick = function () { lbMode = b.dataset.lb; lbSel = {}; $('labelSearch').value = ''; $('labelNew').checked = false; $('labelAll').checked = false; qsa('#labelSeg button').forEach(function (x) { x.classList.toggle('on', x === b); }); renderLabels(); };
   });
   $('labelSearch').addEventListener('input', renderLabels);
   $('labelNew').addEventListener('change', function () { lbSel = {}; renderLabels(); });
@@ -2598,6 +2598,22 @@
     setTimeout(function () { var s = Math.min(3, (wrap.clientWidth - 6) / one.offsetWidth); one.style.transform = 'scale(' + s + ')'; wrap.style.height = Math.ceil(one.offsetHeight * s + 6) + 'px'; }, 0);
   }
 
+  /** A box for the Labels tab.  Boxes are never dropped: an emptied box keeps its code and label (empty: true),
+   *  so a damaged sticker can always be printed again. */
+  var CODE_MODEL = { C1: 'NB3', A200: 'NB2', OK: 'OK4', UNI: 'UNI' };
+  function labelBox(k) {
+    var rows = inBox(k); if (rows.length) return { loc: k, type: rows[0].type, rows: rows, model: P[rows[0].sku].model };
+    var any = BOXES[k] || []; if (!any.length) return null;
+    var mk = /^([A-Z0-9]+)-[BT]\d/.exec(k);
+    return { loc: k, type: any[0].type, rows: [], empty: true, model: (mk && CODE_MODEL[mk[1]]) || 'UNI', printed: any[0].label_printed || '' };
+  }
+  function labelNotPrinted(b) { return b.empty ? !b.printed : b.rows.some(function (r) { return !r.label_printed; }); }
+  function emptyLabel(b) {
+    var m = MODELS[b.model] || { name: '' }, tote = b.type === 'TOTE';
+    return '<div class="lab' + (tote ? ' tote' : '') + ' c-' + b.model + '"><div class="lh"><span>' + (tote ? 'WHITE BOX · ' : '') + esc(m.name || '') + '</span><span>' + esc(b.loc) + '</span></div>' +
+      '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt"><div><div class="lname">Empty box</div><div class="lsku">' + esc(b.loc) + '</div></div>' +
+      (tote ? '<div><div class="tmeta">EXACT QUANTITY</div><div class="tq">____</div></div><div class="sealbox">Seal broken on ____/____/______ by __________</div>' : '') + '</div></div></div>';
+  }
   function labelPool() {
     var q = $('labelSearch').value.trim().toLowerCase();
     if (lbMode === 'RACK') return RACKS.filter(function (r) { return !q || r.loc.toLowerCase().indexOf(q) >= 0; });
@@ -2611,12 +2627,12 @@
       }).sort(function (a, b) { return (order[a.model] - order[b.model]) || a.name.localeCompare(b.name); })
         .map(function (p) { return { loc: p.sku, part: p }; });
     }
-    return Object.keys(BOXES).map(function (k) { var rows = inBox(k); return rows.length ? { loc: k, type: rows[0].type, rows: rows } : null; })
+    return Object.keys(BOXES).map(function (k) { return labelBox(k); })
       .filter(function (b) {
         if (!b || b.type !== lbMode) return false;
-        if ($('labelNew').checked && !b.rows.some(function (r) { return !r.label_printed; })) return false;
+        if ($('labelNew').checked && !labelNotPrinted(b)) return false;
         if (!q) return true;
-        return (b.loc + ' ' + b.rows.map(function (l) { var p = P[l.sku]; return p.sku + ' ' + p.ns_sku + ' ' + p.name + ' ' + p.model; }).join(' ')).toLowerCase().indexOf(q) >= 0;
+        return (b.loc + ' ' + (b.empty ? 'empty ' + MODEL_TAG[b.model] : '') + ' ' + b.rows.map(function (l) { var p = P[l.sku]; return p.sku + ' ' + p.ns_sku + ' ' + p.name + ' ' + p.model; }).join(' ')).toLowerCase().indexOf(q) >= 0;
       }).sort(function (a, b) { return a.loc.localeCompare(b.loc, undefined, { numeric: true }); });
   }
   function renderLabels() {
@@ -2659,12 +2675,14 @@
       x.textContent = base + (segN[x.dataset.lb] ? ' (' + segN[x.dataset.lb] + ' new)' : '');
     });
     $('labelList').innerHTML = pool.length ? pool.map(function (b) {
+      if (b.empty) return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="lqrp" data-qr="' + esc(b.loc) + '"></span><span class="swatch sw-' + esc(b.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · <i>empty now</i></div><div class="t2">Label kept, reprint any time · qty 0</div></div>' +
+        '<button type="button" class="pvbtn" data-pv="' + esc(b.loc) + '">👁 Preview</button>' + (b.printed ? '<span class="pill done">Printed ' + esc(b.printed) + '</span>' : '<span class="pill err">Not printed yet</span>') + '</label>';
       var p = P[b.rows[0].sku], mixed = b.rows.length > 1;
       return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="lqrp" data-qr="' + esc(b.loc) + '" title="Tap to see the QR code big"></span><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · ' +
         (mixed ? 'Mixed box · ' + b.rows.length + ' parts' : esc(p.name)) + '</div><div class="t2">' +
         (mixed ? esc(b.rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) : 'SKU ' + esc(codeOf(p)) + (b.type === 'TOTE' ? ' · qty ' + num(b.rows[0].qty) : '')) + '</div></div>' +
         '<button type="button" class="pvbtn" data-pv="' + esc(b.loc) + '">👁 Preview</button>' +
-        (b.rows.some(function (r) { return !r.label_printed; }) ? '<span class="pill err">Not printed yet</span>' : '<span class="pill done">Printed ' + esc(b.rows[0].label_printed) + '</span>') + '</label>';
+        (b.rows.some(function (r) { return !r.label_printed; }) ? '<span class="pill err">Not printed yet</span>' : '<span class="pill done">Printed ' + esc(b.rows[0].label_printed) + ' · reprint</span>') + '</label>';
     }).join('') : '<p class="hint">' + ($('labelNew').checked ? 'All ' + (lbMode === 'BIN' ? 'blue bin' : 'white box') + ' labels are printed. Untick "Only labels not printed yet" to print one again.' : 'No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.') + '</p>';
     qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
     $('labelPrint').textContent = 'Print selected labels (' + n + ')';
@@ -2719,6 +2737,7 @@
     return sh;
   }
   function binLabel(b) {
+    if (b.empty) return emptyLabel(b);
     var p = P[b.rows[0].sku], m = MODELS[p.model], mixed = b.rows.length > 1;
     return '<div class="lab c-' + p.model + '"><div class="lh"><span>' + esc(m.name) + '</span><span>' + (mixed ? 'MIXED · ' + b.rows.length : esc(p.system) + ' · ' + esc(p.abc)) + '</span></div>' +
       '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt">' +
@@ -2727,6 +2746,7 @@
       '<div class="lloc">' + esc(b.loc) + '</div></div></div></div>';
   }
   function toteLabel(b) {
+    if (b.empty) return emptyLabel(b);
     var l = b.rows[0], p = P[l.sku], m = MODELS[p.model];
     if (b.rows.length > 1) {
       return '<div class="lab tote c-' + p.model + '"><div class="lh"><span>MIXED BOX · ' + esc(m.name) + '</span><span>' + esc(b.loc) + '</span></div>' +
@@ -2784,8 +2804,8 @@
   };
   /** One box's sticker, big, from the QR window. */
   function previewOne(loc) {
-    var rows = inBox(loc); if (!rows.length) return;
-    var b = { loc: normLoc_(loc), type: rows[0].type, rows: rows }, kind = b.type === 'TOTE' ? 'TOTE' : 'BIN';
+    var b = labelBox(normLoc_(loc)); if (!b) return;
+    var kind = b.type === 'TOTE' ? 'TOTE' : 'BIN';
     withQr().then(function () {
       var L4 = LAYOUTS[$('labelLayout').value], w = kind === 'BIN' ? L4[2] : 148.5, h = kind === 'BIN' ? L4[3] : 105;
       modal('<h3 class="formtitle mono">' + esc(b.loc) + ' · sticker</h3><div class="pvwrap one"><div class="pvone" style="width:' + w + 'mm;height:' + h + 'mm">' + (kind === 'BIN' ? binLabel(b) : toteLabel(b)) + '</div></div>' +
