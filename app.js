@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.32 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.33 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1244,14 +1244,14 @@
   var THINGS = {
     wall: { name: 'Wall', w: 2, d: 0.15, fill: '#3b4048' },
     bench: { name: 'Workbench', w: 1.8, d: 0.8, fill: '#8d6e63' },
-    machine: { name: 'Machine / lift', w: 1.2, d: 1.2, fill: '#90a4ae' },
+    machine: { name: 'Machine / lift', short: 'Machine', w: 1.2, d: 1.2, fill: '#90a4ae' },
     pillar: { name: 'Pillar', w: 0.4, d: 0.4, fill: '#455a64' },
     area: { name: 'Floor area', w: 3, d: 2, fill: '#e3f2fd', walk: true },
     walkway: { name: 'Walkway', w: 4, d: 1.2, fill: '#fff7d6', walk: true },
     table: { name: 'Table', w: 1.6, d: 0.8, fill: '#a1887f' },
     chair: { name: 'Chair', w: 0.5, d: 0.5, fill: '#78909c' },
-    tools: { name: 'Tool cabinet', w: 1.2, d: 0.6, fill: '#c62828' },
-    boxes: { name: 'Boxes / pallet', w: 1.2, d: 1, fill: '#d7a86e' },
+    tools: { name: 'Tool cabinet', short: 'Tools', w: 1.2, d: 0.6, fill: '#c62828' },
+    boxes: { name: 'Boxes / pallet', short: 'Boxes', w: 1.2, d: 1, fill: '#d7a86e' },
     label: { name: 'Text', w: 2, d: 0.5, walk: true }
   };
   function blankMap() { return { v: 2, W: 12, H: 8, w: 24, h: 16, door: { x: 0.1, y: 4, w: 1, d: 0.2, a: 270 }, racks: [], items: [] }; }
@@ -1391,7 +1391,7 @@
     tools: function (w, d, T) {
       var out = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="2" fill="' + T.fill + '" stroke="#8e0000" stroke-width="2"/>', n = Math.max(2, Math.round(w / 14));
       for (var i = 1; i < n; i++) { var x = -w / 2 + i * w / n; out += '<line x1="' + x + '" y1="' + (-d / 2 + 3) + '" x2="' + x + '" y2="' + (d / 2 - 3) + '" stroke="#ff8a80" stroke-width="1.5"/>'; }
-      return out + '<text x="0" y="4" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">🔧 Tools</text>';
+      return out;
     },
     boxes: function (w, d, T) {
       var out = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="#8d6e63" opacity=".35"/>', cols = Math.max(1, Math.round(w / 22)), rows = Math.max(1, Math.round(d / 22)), cw = w / cols, ch = d / rows;
@@ -1417,8 +1417,14 @@
     } else {
       var T = THINGS[kind] || THINGS.wall;
       body = kind === 'label' ? '' : FURN[kind] ? FURN[kind](w, d, T) : '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="' + (kind === 'pillar' ? 3 : 2) + '" fill="' + T.fill + '"' + (kind === 'area' ? ' stroke="#64b5f6" stroke-width="2" stroke-dasharray="6 4"' : '') + '/>';
-      var txt = it.text || (kind === 'bench' || kind === 'machine' ? T.name : '');
-      if (txt) body += '<text x="0" y="4" text-anchor="middle" font-size="' + (kind === 'label' ? 16 : 11) + '" font-weight="800" fill="' + (kind === 'area' || kind === 'label' ? '#0f4fa3' : '#fff') + '">' + esc(txt) + '</text>';
+      var txt = kind === 'wall' ? (it.text || '') : (it.text || T.short || T.name);
+      if (txt && kind === 'label') body += '<text x="0" y="5" text-anchor="middle" font-size="16" font-weight="800" fill="#0f4fa3">' + esc(txt) + '</text>';
+      else if (txt) {   // every object shows what it is: inside when it fits, otherwise just below it
+        var light = { area: 1, walkway: 1, boxes: 1 }[kind], fit = Math.min(12, (w - 6) / (txt.length * .62), d * .6), fs, ty, fill, halo;
+        if (fit >= 9) { fs = fit; ty = fs * .36; fill = light ? '#14181f' : '#fff'; halo = light ? 'rgba(255,255,255,.85)' : 'rgba(0,0,0,.35)'; }
+        else { fs = 10; ty = d / 2 + 11; fill = '#14181f'; halo = 'rgba(255,255,255,.95)'; }
+        body += '<text x="0" y="' + ty.toFixed(1) + '" text-anchor="middle" font-size="' + fs.toFixed(1) + '" font-weight="800" fill="' + fill + '" stroke="' + halo + '" stroke-width="' + (fs / 4).toFixed(1) + '" paint-order="stroke" stroke-linejoin="round" pointer-events="none">' + esc(txt) + '</text>';
+      }
       if (kind === 'label' && o.edit) body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="rgba(30,111,217,.06)" stroke="#9fc3f0" stroke-dasharray="4 3"/>' + body;
     }
     var hand = '';
@@ -1881,7 +1887,7 @@
         (kind === 'rack' ? '<select data-f="id">' + [it.id].concat(free).map(function (id) { return '<option' + (id === it.id ? ' selected' : '') + '>' + id + '</option>'; }).join('') + '</select>' +
           '<label class="grp">Name <input data-f="name" value="' + esc(it.name || '') + '" placeholder="e.g. Brake parts" style="width:140px"></label>' +
           '<select data-f="model">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((it.model || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' : '') +
-        (kind === 'area' || kind === 'label' ? '<label class="grp">Text <input data-f="text" value="' + esc(it.text || '') + '" placeholder="' + (kind === 'area' ? 'e.g. Scooter parking' : 'e.g. Office') + '" style="width:150px"></label>' : '') +
+        (kind !== 'wall' && kind !== 'door' ? '<label class="grp">' + (kind === 'label' ? 'Text' : 'Name on map') + ' <input data-f="text" value="' + esc(it.text || '') + '" placeholder="' + (kind === 'area' ? 'e.g. Scooter parking' : kind === 'label' ? 'e.g. Office' : esc((THINGS[kind] || {}).short || (THINGS[kind] || {}).name || '')) + '" style="width:150px"></label>' : '') +
         (kind !== 'door' ? num2('Length', it.w, .05, 'm') + num2('Depth ', it.d, .05, 'm') : num2('Length', it.w, .05, 'm')) +
         num2('Angle', it.a || 0, 5, '°') + '<button type="button" data-rot="-90">↺ 90°</button><button type="button" data-rot="90">↻ 90°</button>' +
         (kind === 'rack' ? shelvesEditor(it) : '') +
