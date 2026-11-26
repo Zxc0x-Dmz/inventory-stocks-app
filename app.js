@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.20 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.21 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1443,9 +1443,8 @@
   }
   function previewRack(loc) {
     var r = RACKS.filter(function (x) { return x.loc === loc; })[0]; if (!r) return;
-    var page = rackPages([r]), one = /<div class="lab racksign">[\s\S]*<\/div><\/div>(?=<\/div>$)/.exec(page);
-    modal('<h3 class="formtitle">Rack sign ' + esc(loc) + '</h3><div class="pvwrap one"><div class="pvone" style="width:210mm;height:148.5mm">' + (one ? one[0] : page) + '</div></div>' +
-      '<p class="hint">Half an A4 sheet (two signs per page), shown smaller.</p>' +
+    modal('<h3 class="formtitle">Rack sign ' + esc(loc) + '</h3><div class="pvwrap one"><div class="pvone" style="width:155mm;height:55mm">' + rackSign(r) + '</div></div>' +
+      '<p class="hint">155 × 55 mm, 5 per A4 sheet, shown bigger. Change the model (colour) in the list.</p>' +
       '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big go" data-x="stay" id="prPrint">Print this one</button></div>');
     $('prPrint').onclick = function () { closeModal(); lbSel = {}; lbSel[loc] = true; $('labelPrint').onclick(); };
     var wrap = document.querySelector('#modalBody .pvwrap'), box = document.querySelector('#modalBody .pvone');
@@ -1505,10 +1504,14 @@
     if (lbMode === 'RACK') {
       $('labelList').innerHTML = pool.map(function (r) {
         var n = snap.locations.filter(function (l) { return normLoc_(l.loc).indexOf(r.loc + '-') === 0; }).length;
-        return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + r.loc + '</span> · Rack ' + Number(r.loc.slice(1)) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
+        return '<label class="item rk-' + (rackModel[r.loc] || 'none') + '"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + r.loc + '</span> · Rack ' + Number(r.loc.slice(1)) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><select class="rksel" data-rm="' + r.loc + '">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((rackModel[r.loc] || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
       }).join('');
       qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected signs (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
       qsa('#labelList [data-pr]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewRack(b.dataset.pr); }; });
+      qsa('#labelList [data-rm]').forEach(function (sel) {
+        sel.onclick = function (e) { e.stopPropagation(); };
+        sel.onchange = function () { if (sel.value) rackModel[sel.dataset.rm] = sel.value; else delete rackModel[sel.dataset.rm]; save('inv.rackModel', rackModel); renderLabels(); };
+      });
       $('labelPrint').textContent = 'Print selected signs (' + n + ')';
       return;
     }
@@ -1562,12 +1565,19 @@
   }
   /** The sticker pages (A4) as HTML: blue-bin labels on the chosen sheet layout, white-box labels two per page,
    *  rack signs two per page.  Used for printing and for the on-screen preview. */
+  /* Rack signs: 155 x 55 mm, 5 per A4 portrait.  Each rack can be given a model; the sign then has that model's
+   * colour (C1 orange, 400C blue, A200 green, Universal grey).  The choice is saved on this device. */
+  var rackModel = load('inv.rackModel', {});
+  var RACK_MODELS = [['', 'No model'], ['NB3', 'C1'], ['OK4', '400C'], ['NB2', 'A200'], ['UNI', 'Universal']];
+  function rackSign(r) {
+    var m = rackModel[r.loc] || '', tag = { NB3: 'C1', OK4: '400C', NB2: 'A200', UNI: 'Universal' }[m] || '';
+    return '<div class="lab racksign rk-' + (m || 'none') + '"><div class="rs-k">RACK</div><div class="rs-n">' + r.loc + '</div>' +
+      (tag ? '<div class="rs-m"><b>' + tag + '</b><span>' + esc((MODELS[m] || {}).name || '') + '</span></div>' : '') + '</div>';
+  }
   function rackPages(signs) {
     var sh = '';
-    for (var si = 0; si < signs.length; si += 2) {
-      sh += '<div class="page" style="grid-template-rows:148.5mm 148.5mm">' + signs.slice(si, si + 2).map(function (r) {
-        return '<div class="lab racksign"><div class="rs-k">RACK</div><div class="rs-n">' + r.loc + '</div><div class="rs-h">Shelves S1, S2, S3 … from the bottom · bins B01, B02 … from the left<br>Bin label example: <b>' + r.loc + '-S2-B05</b></div></div>';
-      }).join('') + '</div>';
+    for (var si = 0; si < signs.length; si += 5) {
+      sh += '<div class="page" style="padding:11mm 27.5mm;grid-template-columns:155mm;grid-template-rows:repeat(5,55mm)">' + signs.slice(si, si + 5).map(rackSign).join('') + '</div>';
     }
     return sh;
   }
