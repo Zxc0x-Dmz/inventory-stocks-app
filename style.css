@@ -598,3 +598,20 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 
 .wayrow { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
 .wayrow .photobtn { width: 100%; margin: 0; }
+
+/* part photos: up to 6 per part */
+.phstrip { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+.phth { width: 46px; height: 46px; border: 2px solid var(--line); border-radius: 8px; background: #f2f4f7 center/cover no-repeat; padding: 0; }
+.phth.main { border-color: #ffb300; }
+.phcount { font-size: 12px; color: var(--mute); margin-top: 4px; }
+.photoBig.pv { flex-direction: column; cursor: default; }
+.pv .pvtop { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; padding: 10px 14px; color: #fff; background: rgba(0,0,0,.4); }
+.pv .pvtop span { opacity: .8; font-size: 13px; flex: 1; }
+.pv .pvx { border: 0; background: rgba(255,255,255,.15); color: #fff; border-radius: 10px; width: 40px; height: 40px; font-size: 18px; }
+.pv .pvimg { width: min(92vw, 720px); height: min(70vh, 720px); background: center/contain no-repeat; }
+.pv .pvnav { position: absolute; top: 50%; transform: translateY(-50%); border: 0; width: 52px; height: 72px; border-radius: 12px; background: rgba(255,255,255,.18); color: #fff; font-size: 40px; line-height: 1; }
+.pv .pvnav:active { transform: translateY(-50%) scale(.95); }
+.pv .pvnav.l { left: 10px; } .pv .pvnav.r { right: 10px; }
+.pv .pvbar { position: absolute; bottom: 18px; left: 0; right: 0; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 0 12px; }
+.pv .pvbar button { border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 700; background: #fff; color: #14181f; min-height: 46px; }
+.pv .pvbar button.del { background: #c62828; color: #fff; }

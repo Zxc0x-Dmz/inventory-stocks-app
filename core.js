@@ -6,7 +6,7 @@
  * the Movements log.  Nothing changes a quantity without a log line.
  */
 var TABLES = {
-  Parts:     ['sku', 'name', 'model', 'system', 'abc', 'ns_sku', 'tier_code', 'fits', 'unit', 'notes', 'price_eur', 'weight_g', 'photo_id', 'hs_code', 'reorder_at'],
+  Parts:     ['sku', 'name', 'model', 'system', 'abc', 'ns_sku', 'tier_code', 'fits', 'unit', 'notes', 'price_eur', 'weight_g', 'photo_id', 'hs_code', 'reorder_at', 'more_photos'],
   Locations: ['loc', 'type', 'sku', 'qty', 'min', 'sealed_date', 'last_count', 'notes', 'label_printed', 'place'],
   Movements: ['id', 'ts', 'type', 'sku', 'from_loc', 'to_loc', 'qty', 'mechanic', 'vehicle', 'note', 'device'],
   Counts:    ['id', 'ts', 'loc', 'sku', 'expected', 'counted', 'variance', 'counter', 'status', 'resolved_by', 'resolved_ts'],

@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.37 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.38 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -167,12 +167,19 @@
       });
     }
     if (op === 'photo') return steps.then(function () { return { ok: true, id: p.id, data: (window.DEMO_PHOTOS && window.DEMO_PHOTOS[p.id]) || null }; });
-    if (op === 'setPhoto') return steps.then(function () {
+    if (op === 'setPhoto') return steps.then(function () {   // same rules as setPhoto_ in Code.gs
       var part = core.findPart_(String(p.sku || '').toUpperCase()); if (!part) throw bizError('Unknown part ' + p.sku);
-      var id = String(part.photo_id || part.ns_sku || part.sku).replace(/_v[0-9a-z]+$/, '') + '_v' + Date.now().toString(36);
-      window.DEMO_PHOTOS = window.DEMO_PHOTOS || {}; window.DEMO_PHOTOS[id] = p.data;
-      core.s.update('Parts', part, { photo_id: id }); core.s.bump();
-      return { ok: true, id: id };
+      var main = String(part.photo_id || ''), more = String(part.more_photos || '').split(',').filter(Boolean), act = p.action || 'replace', id = '';
+      var base = String(part.ns_sku || part.sku).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 24);
+      if (act === 'replace' || act === 'add') {
+        if (act === 'add' && main && more.length >= MAX_PHOTOS - 1) throw bizError('This part already has ' + MAX_PHOTOS + ' photos. Delete one first.');
+        id = (act === 'add' && main ? base + '_x' : String(main || base).replace(/_v[0-9a-z]+$/, '') + '_v') + Date.now().toString(36);
+        window.DEMO_PHOTOS = window.DEMO_PHOTOS || {}; window.DEMO_PHOTOS[id] = p.data;
+        if (act === 'add' && main) more.push(id); else main = id;
+      } else if (act === 'remove') { if (p.id === main) main = more.shift() || ''; else more = more.filter(function (x) { return x !== p.id; }); }
+      else if (act === 'main') { more = more.map(function (x) { return x === p.id ? main : x; }).filter(Boolean); main = p.id; }
+      core.s.update('Parts', part, { photo_id: main, more_photos: more.join(',') }); core.s.bump();
+      return { ok: true, id: id, photo_id: main, more_photos: more.join(',') };
     });
     if (op === 'savePhotos') return steps.then(function () {
       if (!who || who.role !== 'supervisor') throw bizError('Only a supervisor can do this', null, 'ROLE');
@@ -557,7 +564,7 @@
       if (el.offsetParent === null || el.getBoundingClientRect().top > hmax) return;   // not on screen yet
       el.dataset.state = 'loading';
       getPhoto(el.dataset.photo).then(function (d) {
-        if (d) { el.style.backgroundImage = 'url("' + d + '")'; el.dataset.state = 'ok'; el.innerHTML = ''; el.onclick = function (e) { e.stopPropagation(); bigPhoto(d); }; }
+        if (d) { el.style.backgroundImage = 'url("' + d + '")'; el.dataset.state = 'ok'; el.innerHTML = ''; if (!el.dataset.phid && !el.dataset.pv) el.onclick = function (e) { e.stopPropagation(); bigPhoto(d); }; }
         else el.dataset.state = 'none';
       });
     });
@@ -571,7 +578,7 @@
     if (!force && Date.now() - photoSyncAt < 10 * 60000) return;    // at most every 10 minutes
     photoSyncBusy = true; photoSyncAt = Date.now();
     var ver = load('inv.photoVer', {}), used = {};
-    (snap.parts || []).forEach(function (p) { if (p.photo_id) used[p.photo_id] = 1; });
+    (snap.parts || []).forEach(function (p) { photosOf(p).forEach(function (id) { used[id] = 1; }); });
     photoSyncRun = api('photoList').then(function (r) {
       var need = (r.list || []).filter(function (x) { return used[x[0]] && ver[x[0]] !== x[1]; });
       var done = 0, step = function () {
@@ -592,9 +599,46 @@
     }).catch(function () { photoSyncAt = 0; })   // offline or old backend: try again next time
       .then(function () { photoSyncBusy = false; photoSyncRun = null; });
   }
+  var MAX_PHOTOS = 6;
+  /** All photo ids of a part: main photo first, then the extra ones (side views etc.). */
+  function photosOf(p) { return (p.photo_id ? [p.photo_id] : []).concat(String(p.more_photos || '').split(',').filter(Boolean)); }
   function bigPhoto(d) {
     var o = document.createElement('div'); o.className = 'photoBig'; o.innerHTML = '<img alt="">'; o.firstChild.src = d;
     o.onclick = function () { o.remove(); }; document.body.appendChild(o);
+  }
+  /** Big photo with ‹ › to flip through all photos of the part, ⭐ make it the main photo, 🗑 delete it. */
+  function photoViewer(sku, id) {
+    var p = P[sku]; if (!p) return;
+    var old = document.querySelector('.photoBig'); if (old) old.remove();
+    var ids = photosOf(p), i = Math.max(0, ids.indexOf(id));
+    var o = document.createElement('div'); o.className = 'photoBig pv';
+    var act = function (body, ok) {
+      api('setPhoto', body).then(function (r) {
+        P[sku].photo_id = r.photo_id; P[sku].more_photos = r.more_photos; toast(ok, 'good');
+        if (sel && sel.sku === sku) renderPart(); renderAll();
+        if (photosOf(P[sku]).length) { var nid = photosOf(P[sku])[Math.min(i, photosOf(P[sku]).length - 1)]; photoViewer(sku, body.action === 'main' ? P[sku].photo_id : nid); } else o.remove();
+      }).catch(function (e) { toast(e.business ? e.message : 'Needs a connection. Try again.', 'bad'); });
+    };
+    var draw = function () {
+      ids = photosOf(P[sku]); if (!ids.length) { o.remove(); return; }
+      i = Math.min(i, ids.length - 1); var cur = ids[i];
+      o.innerHTML = '<div class="pvtop"><b>' + esc(p.name) + '</b><span>Photo ' + (i + 1) + ' of ' + ids.length + (i === 0 ? ' · ⭐ main' : '') + '</span><button type="button" class="pvx" data-pv="close" title="Close">✕</button></div>' +
+        '<div class="pvimg" data-photo="' + esc(cur) + '"></div>' +
+        (ids.length > 1 ? '<button type="button" class="pvnav l" data-pv="prev">‹</button><button type="button" class="pvnav r" data-pv="next">›</button>' : '') +
+        '<div class="pvbar">' + (i > 0 ? '<button type="button" data-pv="main">⭐ Make main photo</button>' : '') + '<button type="button" class="del" data-pv="del">🗑 Delete photo</button></div>';
+      getPhoto(cur).then(function (d) { var el = o.querySelector('.pvimg'); if (el && d) { el.style.backgroundImage = 'url("' + d + '")'; el.dataset.state = 'ok'; } });
+    };
+    o.onclick = function (e) {
+      var b = e.target.closest('[data-pv]'); e.stopPropagation();
+      if (!b) { if (e.target === o) o.remove(); return; }
+      var a = b.dataset.pv, cur = ids[i];
+      if (a === 'close') o.remove();
+      else if (a === 'prev') { i = (i - 1 + ids.length) % ids.length; draw(); }
+      else if (a === 'next') { i = (i + 1) % ids.length; draw(); }
+      else if (a === 'main') act({ sku: sku, id: cur, action: 'main' }, 'This is now the main photo');
+      else if (a === 'del') { if (b.dataset.sure) act({ sku: sku, id: cur, action: 'remove' }, 'Photo deleted'); else { b.dataset.sure = 1; b.textContent = 'Tap again to delete'; } }
+    };
+    document.body.appendChild(o); draw();
   }
   var photoT = null;
   function photoBox(part) {
@@ -935,8 +979,10 @@
     var st = stockOf(p.sku), mode = sel.mode, h = '';
     h += '<div class="pd"><div class="pd-top">' +
       '<div class="pd-left">' + (p.photo_id ? '<div class="pd-ph" data-photo="' + esc(p.photo_id) + '"><i>No photo yet</i></div>' : '<div class="pd-ph none"><i>No photo yet</i></div>') +
-      '<div class="photobtns"><button type="button" class="photobtn" id="photoCam">📷 Take photo</button><button type="button" class="photobtn" id="photoGal">🖼 From gallery</button></div>' +
-      '<input type="file" id="photoCamPick" accept="image/*" capture="environment" hidden><input type="file" id="photoPick" accept="image/*" hidden></div>' +
+      (photosOf(p).length > 1 ? '<div class="phstrip">' + photosOf(p).map(function (id, i) { return '<button type="button" class="phth' + (i === 0 ? ' main' : '') + '" data-phid="' + esc(id) + '" data-photo="' + esc(id) + '" title="' + (i === 0 ? 'Main photo' : 'Photo ' + (i + 1)) + '"></button>'; }).join('') + '</div>' : '') +
+      '<div class="phcount">' + photosOf(p).length + ' / ' + MAX_PHOTOS + ' photos' + (photosOf(p).length ? ' · tap a photo to see it big' : '') + '</div>' +
+      (photosOf(p).length < MAX_PHOTOS ? '<div class="photobtns"><button type="button" class="photobtn" id="photoCam">📷 ' + (p.photo_id ? 'Add photo' : 'Take photo') + '</button><button type="button" class="photobtn" id="photoGal">🖼 From gallery</button></div>' : '<div class="phcount">Full: delete a photo to add another.</div>') +
+      '<input type="file" id="photoCamPick" accept="image/*" capture="environment" hidden><input type="file" id="photoPick" accept="image/*" multiple hidden></div>' +
       '<div class="pd-info"><span class="mtag m-' + esc(p.model) + '"><i class="dot sw-' + esc(p.model) + '"></i>' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + esc((MODELS[p.model] || {}).name || '') + '</span>' +
       '<h3>' + esc(p.name) + '</h3><div class="pd-sku">SKU <b class="mono">' + esc(codeOf(p)) + '</b></div>' +
       '<div class="pd-total' + (st.low ? ' low' : '') + '">' + (st.total > 0 ? '<b>' + st.total + '</b> in stock' : st.locs.length ? '<b>0</b> in stock' : 'Not in stock yet') + (st.low ? ' <span class="pill err">ORDER</span>' : '') + '</div>' +
@@ -971,15 +1017,25 @@
       b.onclick = function () { sel.box = b.dataset.box; qsa('#modalBody [data-box]').forEach(function (x) { x.classList.toggle('on', x === b); }); if ($('boxInput') && mode === 'ADD') $('boxInput').value = sel.box; };
     });
     qsa('#modalBody [data-cam]').forEach(function (b) { b.onclick = function () { openCam(b.dataset.cam); }; });
-    $('photoCam').onclick = function () { $('photoCamPick').click(); };    // opens the camera straight away
+    if ($('photoCam')) $('photoCam').onclick = function () { $('photoCamPick').click(); };    // opens the camera straight away
     $('ordSave').onclick = function () {
       var v = Math.max(0, Math.round(num($('ordLevel').value)));
       api('setReorder', { sku: p.sku, level: v }).then(function () {
         p.reorder_at = String(v); toast('Order ' + p.name + ' when ' + v + ' or fewer are left', 'good'); renderPart(); renderAll();
       }).catch(function (e) { toast(e.business ? e.message : 'Saving needs a connection. Try again.', 'bad'); });
     };
-    $('photoGal').onclick = function () { $('photoPick').click(); };       // picks a saved photo
-    $('photoCamPick').onchange = $('photoPick').onchange = function () { var f = this.files && this.files[0]; this.value = ''; if (f) uploadPhoto(p.sku, f); };
+    if ($('photoGal')) $('photoGal').onclick = function () { $('photoPick').click(); };       // picks a saved photo
+    $('photoCamPick').onchange = $('photoPick').onchange = function () {
+      var fs = Array.prototype.slice.call(this.files || []); this.value = '';
+      var room = MAX_PHOTOS - photosOf(p).length;
+      if (fs.length > room) toast('Only ' + room + ' more photo' + (room === 1 ? '' : 's') + ' fit. The first ' + room + ' are saved.', 'bad');
+      fs = fs.slice(0, room);
+      var next = function () { var f = fs.shift(); if (f) uploadPhoto(p.sku, f, next); };   // one after the other
+      next();
+    };
+    qsa('#modalBody [data-phid]').forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); photoViewer(p.sku, b.dataset.phid); }; });
+    var mainPh = document.querySelector('#modalBody .pd-ph[data-photo]');
+    if (mainPh && photosOf(p).length) { mainPh.dataset.pv = '1'; mainPh.onclick = function (e) { e.stopPropagation(); photoViewer(p.sku, p.photo_id); }; }
     qsa('#modalBody [data-kind]').forEach(function (b) { b.onclick = function () { var q = $('fQty').value; sel.kind = b.dataset.kind; sel.pick = null; renderPart(); $('fQty').value = q; }; });
     qsa('#modalBody [data-pick]').forEach(function (b) { b.onclick = function () {
       sel.pick = b.dataset.pick; $('boxInput').value = sel.pick;
@@ -1018,21 +1074,23 @@
   });
 
   /** Take or pick a photo on the phone: made small, saved for this part, shown on every phone. */
-  function uploadPhoto(sku, file) {
+  function uploadPhoto(sku, file, then) {
     if (!signedIn()) return showSignIn();
     var btns = qsa('.photobtns .photobtn'); btns.forEach(function (b) { b.disabled = true; }); if (btns[0]) btns[0].textContent = 'Saving photo…';
     var reader = new FileReader();
     reader.onload = function () {
       shrink(reader.result, 480, .75).then(function (d) { return d && d.length < 49000 ? d : shrink(reader.result, 320, .6); }).then(function (d) {
         if (!d) throw new Error('That file is not a photo');
-        return api('setPhoto', { sku: sku, data: d }).then(function (r) {
+        return api('setPhoto', { sku: sku, data: d, action: 'add' }).then(function (r) {
           photoMem[r.id] = d; cachePut(r.id, d);
-          if (P[sku]) P[sku].photo_id = r.id;
-          toast('Photo saved for every phone', 'good');
+          if (P[sku]) { P[sku].photo_id = r.photo_id != null ? r.photo_id : r.id; if (r.more_photos != null) P[sku].more_photos = r.more_photos; }
+          toast('Photo saved for every phone (' + photosOf(P[sku] || {}).length + ' / ' + MAX_PHOTOS + ')', 'good');
+          if (then) setTimeout(then, 50);
           if (sel && sel.sku === sku) renderPart();
           renderAll();
         });
       }).catch(function (e) {
+        if (!e.business && window.console) console.warn('photo upload', e);
         toast(e.business ? e.message : 'Saving a photo needs a connection. Try again.', 'bad');
         btns.forEach(function (b) { b.disabled = false; }); if (btns[0]) btns[0].textContent = '📷 Take photo';
       });
