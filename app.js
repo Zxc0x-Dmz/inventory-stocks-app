@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.26 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.27 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1418,6 +1418,8 @@
     for (var gy = 0; gy <= m.H + 1e-9; gy += .5) g += '<line x1="0" y1="' + gy * S + '" x2="' + W + '" y2="' + gy * S + '"' + (Math.abs(gy - Math.round(gy)) < 1e-9 ? ' stroke="#d9dde3"' : '') + '/>';
     var items = m.items.map(function (it, n) { return { it: it, n: n }; });
     var flat = { area: 1, walkway: 1 }, under = items.filter(function (x) { return flat[x.it.kind]; }), over = items.filter(function (x) { return !flat[x.it.kind] && x.it.kind !== 'label'; }), labels = items.filter(function (x) { return x.it.kind === 'label'; });
+    var hid = o.hidden || {}, items2 = function (arr) { return arr.filter(function (x) { return !hid['i' + x.n]; }); };
+    under = items2(under); over = items2(over); labels = items2(labels);
     var draw = function (x) { return itemSvg(x.it, x.it.kind, { key: 'i' + x.n, sel: o.sel, edit: o.edit }); };
     var path = '';
     if (o.path && o.path.length > 1) {
@@ -1433,7 +1435,7 @@
       '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="url(#floorTiles)"/>';
     return floor + (o.edit ? '<g stroke="#d9d5cc" stroke-width=".6" opacity=".7">' + g + '</g>' : '') +
       under.map(draw).join('') + over.map(draw).join('') +
-      m.racks.map(function (r) { return itemSvg(r, 'rack', { key: 'r' + r.id, hi: o.hi, sel: o.sel, edit: o.edit }); }).join('') +
+      m.racks.filter(function (r) { return !hid['r' + r.id]; }).map(function (r) { return itemSvg(r, 'rack', { key: 'r' + r.id, hi: o.hi, sel: o.sel, edit: o.edit }); }).join('') +
       labels.map(draw).join('') + '<rect x="-4" y="-4" width="' + (W + 8) + '" height="' + (H + 8) + '" fill="none" stroke="#3b4048" stroke-width="8" rx="2"/>' +
       path + itemSvg(m.door, 'door', { key: 'door', sel: o.sel, edit: o.edit }) + sign + '<g id="manLayer"></g>';
   }
@@ -1502,7 +1504,7 @@
     var m = mapData();
     $('mapEditBtns').style.display = isSup() && !mapEd ? '' : 'none';
     if (mapEd) { $('mapFind').style.display = 'none'; $('mapSteps').innerHTML = ''; $('rackCard').style.display = 'none'; $('mapCap').textContent = 'Workshop (top view) · editing'; return drawEditor(); }
-    $('mapFind').style.display = ''; $('mapEdit').style.display = 'none'; $('mapCap').textContent = 'Workshop (top view)';
+    $('mapFind').style.display = ''; $('mapEdit').style.display = 'none'; $('mapCap').textContent = 'Workshop (top view)'; $('tab-map').classList.remove('editing'); $('layersCard').style.display = 'none';
     if (!m.racks.length) {
       $('mapTop').innerHTML = topSvg(m);
       $('mapSteps').innerHTML = '<div class="warn">The workshop map is not drawn yet. ' + (isSup() ? 'Tap <b>✏ Edit workshop map</b> below to place the racks.' : 'Ask a supervisor to draw it.') + '</div>';
@@ -1579,6 +1581,49 @@
     draw();
   }
 
+  /** Layers: everything on the map, grouped, with show/hide (editor only), lock and tap-to-select. */
+  function drawLayers() {
+    var e = mapEd, m = e.m, rows = [], count = {};
+    $('layersCard').style.display = '';
+    var row = function (key, it, icon, name, sub, canLock) {
+      return '<div class="lyr' + (e.sel === key ? ' on' : '') + (e.hidden[key] ? ' off' : '') + '" data-lk="' + key + '">' +
+        '<button type="button" class="eye" data-eye="' + key + '" title="Show / hide while editing">' + (e.hidden[key] ? '◌' : '👁') + '</button>' +
+        (canLock ? '<button type="button" class="lk" data-lock="' + key + '" title="Lock so it cannot be moved">' + (it.lock ? '🔒' : '🔓') + '</button>' : '<span class="lk"></span>') +
+        '<span class="ic">' + icon + '</span><span class="nm"><b>' + name + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span></div>';
+    };
+    rows.push('<div class="lgrp">Entrance</div>' + row('door', m.door, '🚪', 'Entrance', '', true));
+    var racks = m.racks.slice().sort(function (a, b) { return a.id.localeCompare(b.id); });
+    rows.push('<div class="lgrp">Racks (' + racks.length + ')</div>' + racks.map(function (r) {
+      var L = layersOf(r), white = L.filter(function (x) { return x.t === 'TOTE'; }).length;
+      return row('r' + r.id, r, '<i class="sw" style="background:' + (MAP_COLORS[rackModelOf(r)] || MAP_COLORS['']) + '"></i>', r.id + (r.name ? ' · ' + esc(r.name) : ''),
+        L.length + ' shelves' + (white ? ' (' + white + ' white)' : '') + (MAP_TAG[rackModelOf(r)] ? ' · ' + MAP_TAG[rackModelOf(r)] : ''), true);
+    }).join(''));
+    Object.keys(THINGS).forEach(function (k) {
+      var list = m.items.map(function (it, n) { return { it: it, n: n }; }).filter(function (x) { return x.it.kind === k; });
+      if (!list.length) return;
+      count[k] = list.length;
+      rows.push('<div class="lgrp">' + THINGS[k].name + ' (' + list.length + ')</div>' + list.map(function (x, idx) {
+        return row('i' + x.n, x.it, '<i class="sw" style="background:' + (THINGS[k].fill || '#fff') + '"></i>', (x.it.text || THINGS[k].name + ' ' + (idx + 1)), x.it.w.toFixed(1) + ' × ' + x.it.d.toFixed(1) + ' m' + (x.it.a ? ' · ' + Math.round(x.it.a) + '°' : ''), true);
+      }).join(''));
+    });
+    var sum = [racks.length + ' rack' + (racks.length === 1 ? '' : 's')].concat(Object.keys(count).map(function (k) { return count[k] + ' ' + THINGS[k].name.toLowerCase() + (count[k] > 1 && !/s$/.test(THINGS[k].name) ? 's' : ''); }));
+    $('mapLayers').innerHTML = '<p class="lsum">' + esc(sum.join(' · ')) + '</p><div class="lyrs">' + rows.join('') + '</div>';
+    qsa('#mapLayers [data-lk]').forEach(function (r) { r.onclick = function () { e.sel = r.dataset.lk; drawEditor(); }; });
+    qsa('#mapLayers [data-eye]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); var k = b.dataset.eye; e.hidden[k] = !e.hidden[k]; if (e.hidden[k] && e.sel === k) e.sel = null; drawEditor(); }; });
+    qsa('#mapLayers [data-lock]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); var o = edItem(b.dataset.lock); if (!o) return; if (o.lock) delete o.lock; else o.lock = true; drawEditor(); }; });
+  }
+  /** Buttons floating on the map for the selected object, so nothing needs scrolling. */
+  function floatBar() {
+    var e = mapEd, it = edItem(e.sel), kind = edKind(e.sel);
+    if (!it) return '<div class="mapfloat hint">Tap or drag anything on the map. ' + (window.matchMedia('(pointer:fine)').matches ? 'Shift + wheel turns it.' : '') + '</div>';
+    var name = kind === 'rack' ? 'Rack ' + it.id + (it.name ? ' · ' + esc(it.name) : '') : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name;
+    return '<div class="mapfloat"><b>' + name + '</b><span class="ang">' + Math.round(it.a || 0) + '°</span>' +
+      '<button type="button" data-fl="rot-15" title="Turn left 15°">↺ 15°</button><button type="button" data-fl="rot15" title="Turn right 15°">↻ 15°</button>' +
+      '<button type="button" data-fl="rot-90" title="Turn left 90°">↺ 90°</button><button type="button" data-fl="rot90" title="Turn right 90°">↻ 90°</button>' +
+      (kind !== 'door' ? '<button type="button" data-fl="shorter" title="Shorter">− len</button><button type="button" data-fl="longer" title="Longer">+ len</button>' +
+        '<button type="button" data-fl="copy" title="Copy (Ctrl+C, Ctrl+V)">⧉ Copy</button><button type="button" data-fl="del" title="Remove (Delete)">🗑</button>' : '') +
+      '<button type="button" data-fl="done" title="Done (Esc)">✓</button></div>';
+  }
   /** Editor rows for a rack's shelves, top shelf first like the real rack. */
   function shelvesEditor(r) {
     var L = layersOf(r);
@@ -1636,10 +1681,13 @@
     if (k === 'r' && !ctrl) { it.a = (((it.a || 0) + (ev.shiftKey ? -90 : 90)) % 360 + 360) % 360; drawEditor(); ev.preventDefault(); return; }
     if (ev.key === 'Escape') { mapEd.sel = null; drawEditor(); }
   });
-  function edRedraw() { var g = document.querySelector('#mapTop #mapContent'); if (g) g.innerHTML = topInner(mapEd.m, { sel: mapEd.sel, edit: true }); }
+  function edRedraw() { var g = document.querySelector('#mapTop #mapContent'); if (g) g.innerHTML = topInner(mapEd.m, { sel: mapEd.sel, edit: true, hidden: mapEd.hidden }); }
   function drawEditor() {
     var e = mapEd, m = e.m;
-    $('mapTop').innerHTML = topSvg(m, { sel: e.sel, edit: true });
+    $('tab-map').classList.add('editing');
+    e.hidden = e.hidden || {};
+    $('mapTop').innerHTML = topSvg(m, { sel: e.sel, edit: true, hidden: e.hidden }) + floatBar();
+    drawLayers();
     var svg = document.querySelector('#mapTop svg'); svg.style.touchAction = 'none';
     var free = RACKS.map(function (x) { return x.loc; }).filter(function (id) { return !rackOn(m, id); });
     var key = e.sel, it = edItem(key), kind = edKind(key);
@@ -1669,20 +1717,29 @@
       if (!g) { if (e.sel) { e.sel = null; drawEditor(); } return; }
       var k = g.dataset.it, o = edItem(k); if (!o) return;
       ev.preventDefault();
-      if (k !== e.sel && !h) { e.sel = k; drawEditor(); svg = document.querySelector('#mapTop svg'); }
-      e.drag = { mode: h ? h.dataset.h : 'move', key: k, start: pt(ev), orig: JSON.parse(JSON.stringify(o)) };
+      var changed = k !== e.sel; if (changed && !h) { e.sel = k; edRedraw(); }
+      if (o.lock) { e.drag = null; if (changed) drawEditor(); else toast('Locked. Unlock it in Layers to move it.', 'bad'); return; }
+      e.drag = { mode: h ? h.dataset.h : 'move', key: k, start: pt(ev), orig: JSON.parse(JSON.stringify(o)), moved: false, changed: changed };
       try { svg.setPointerCapture(ev.pointerId); } catch (er) {}
     };
     svg.onpointermove = function (ev) {
       var dr = e.drag; if (!dr) return;
       var o = edItem(dr.key), p0 = pt(ev), or = dr.orig;
+      if (!dr.moved && Math.hypot(p0[0] - dr.start[0], p0[1] - dr.start[1]) < .02) return;   // a tap, not a drag yet
+      dr.moved = true;
       if (dr.mode === 'move') { o.x = r2(or.x + p0[0] - dr.start[0]); o.y = r2(or.y + p0[1] - dr.start[1]); keepIn(o); }
       else if (dr.mode === 'rot') { var ang = Math.atan2(p0[1] - or.y, p0[0] - or.x) * 180 / Math.PI + 90; o.a = ((Math.round(ang / 5) * 5) % 360 + 360) % 360; }
       else if (dr.mode === 'len') { var lx = toLocal(or, p0[0], p0[1])[0], nw = Math.max(.2, r2(lx + or.w / 2)), sh = toWorld({ x: 0, y: 0, a: or.a }, (nw - or.w) / 2, 0); o.w = nw; o.x = or.x + sh[0]; o.y = or.y + sh[1]; }
       else if (dr.mode === 'dep') { var ly = toLocal(or, p0[0], p0[1])[1], nd = Math.max(.1, r2(or.d / 2 - ly)), sh2 = toWorld({ x: 0, y: 0, a: or.a }, 0, -(nd - or.d) / 2); o.d = nd; o.x = or.x + sh2[0]; o.y = or.y + sh2[1]; }
       edRedraw();
     };
-    svg.onpointerup = svg.onpointercancel = function () { if (e.drag) { e.drag = null; drawEditor(); } };
+    svg.onpointerup = svg.onpointercancel = function () { var dr = e.drag; if (dr) { e.drag = null; if (dr.moved || dr.changed) drawEditor(); } };
+    // laptop: Shift + mouse wheel turns the selected object (5° a notch)
+    svg.onwheel = function (ev) {
+      var o = edItem(e.sel); if (!o || !ev.shiftKey) return;
+      ev.preventDefault(); o.a = (((o.a || 0) + (ev.deltaY > 0 || ev.deltaX > 0 ? 5 : -5)) % 360 + 360) % 360; edRedraw();
+      clearTimeout(e.wheelT); e.wheelT = setTimeout(drawEditor, 400);
+    };
 
     qsa('#mapEdit [data-add]').forEach(function (b) { b.onclick = function () {
       var k = b.dataset.add, cx = r2(m.W / 2, .5), cy = r2(m.H / 2, .5);
@@ -1710,6 +1767,16 @@
       if (inp.dataset.num === 'Width') { m.W = Math.max(3, Math.min(40, v)); m.w = Math.max(6, Math.round(m.W * 2)); }
       else { m.H = Math.max(3, Math.min(40, v)); m.h = Math.max(6, Math.round(m.H * 2)); }
       drawEditor();
+    }; });
+    qsa('#mapTop [data-fl]').forEach(function (b) { b.onclick = function (ev) {
+      ev.stopPropagation(); var a = b.dataset.fl, o = edItem(e.sel), k2 = edKind(e.sel);
+      if (!o) return;
+      if (a.indexOf('rot') === 0) o.a = (((o.a || 0) + Number(a.slice(3))) % 360 + 360) % 360;
+      else if (a === 'copy' && k2 !== 'door') edPaste({ kind: k2, item: o });
+      else if (a === 'del' && k2 !== 'door') { if (k2 === 'rack') m.racks = m.racks.filter(function (x) { return x !== o; }); else m.items.splice(Number(e.sel.slice(1)), 1); e.sel = null; }
+      else if (a === 'longer' || a === 'shorter') { var nw = Math.max(.2, r2(o.w + (a === 'longer' ? .5 : -.5))); o.w = nw; }
+      else if (a === 'done') e.sel = null;
+      if (a !== 'copy') drawEditor();
     }; });
     qsa('#mapEdit [data-rot]').forEach(function (b) { b.onclick = function () { it.a = (((it.a || 0) + Number(b.dataset.rot)) % 360 + 360) % 360; drawEditor(); }; });
     if (kind === 'rack') {

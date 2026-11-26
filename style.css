@@ -521,3 +521,32 @@ body.sup .sup-hide { display: none !important; }
 .shelfed .shelfrow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px 0; border-top: 1px solid #f0f1f3; }
 .shelfed .snum { min-width: 108px; font-weight: 700; font-size: 13px; }
 .shelfed select { width: auto; }
+
+/* Map editing: full width, floating toolbar on the map */
+#mapTop { position: relative; }
+#tab-map.editing .mapviews { grid-template-columns: 1fr; }
+#tab-map.editing #mapTop svg { max-height: 72vh; }
+.mapfloat { position: sticky; bottom: 8px; margin: 6px auto 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; width: fit-content; max-width: 100%;
+  background: rgba(20, 24, 31, .92); color: #fff; border-radius: 14px; padding: 6px 8px; box-shadow: 0 4px 14px rgba(0,0,0,.25); z-index: 5; }
+.mapfloat.hint { background: #f6f7f9; color: var(--mute); box-shadow: none; font-size: 13px; }
+.mapfloat b { font-size: 13.5px; padding: 0 4px; }
+.mapfloat .ang { font-family: Consolas, monospace; font-size: 12px; opacity: .8; margin-right: 2px; }
+.mapfloat button { border: 0; background: #2d333d; color: #fff; border-radius: 10px; padding: 8px 10px; font-weight: 700; font-size: 13px; min-height: 40px; }
+.mapfloat button:active { background: #1e6fd9; }
+
+/* Layers panel (editing) */
+@media (min-width: 900px) { #tab-map.editing .mapviews { grid-template-columns: 3fr 1.1fr; } }
+#layersCard { align-self: start; }
+#mapLayers .lsum { font-size: 12.5px; color: var(--mute); margin: 0 4px 6px; }
+#mapLayers .lyrs { max-height: 70vh; overflow-y: auto; }
+#mapLayers .lgrp { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); padding: 8px 6px 3px; }
+#mapLayers .lyr { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+#mapLayers .lyr:hover { background: #f2f4f7; }
+#mapLayers .lyr.on { background: #e9f1fd; outline: 1.5px solid #1e6fd9; }
+#mapLayers .lyr.off .nm, #mapLayers .lyr.off .ic { opacity: .4; }
+#mapLayers .eye, #mapLayers .lk { flex: none; width: 28px; height: 28px; border: 0; background: transparent; font-size: 14px; padding: 0; }
+#mapLayers .ic { flex: none; width: 22px; display: flex; justify-content: center; }
+#mapLayers .ic .sw { display: inline-block; width: 16px; height: 16px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); }
+#mapLayers .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+#mapLayers .nm b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#mapLayers .nm small { font-size: 11px; color: var(--mute); }
