@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.35 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.36 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1602,10 +1602,27 @@
     if (!wayNow) { $('mapTop').innerHTML = topSvg(m); $('mapSteps').innerHTML = ''; $('rackCard').style.display = 'none'; return; }
     var p = P[wayNow.sku];
     var boxes = (BY[wayNow.sku] || []).filter(function (l) { return num(l.qty) > 0; });
-    if (wayNow.loc) boxes.sort(function (a, b) { return (b.loc === wayNow.loc) - (a.loc === wayNow.loc); });
-    var withPlace = boxes.filter(function (l) { return placeOf(l.loc) && rackOn(m, placeOf(l.loc).rack); });
-    var l = withPlace[0];
+    boxes.sort(function (a, b) { return num(b.qty) - num(a.qty); });   // fixed order, most pieces first
+    var placed = function (x) { return placeOf(x.loc) && rackOn(m, placeOf(x.loc).rack); };
+    var withPlace = boxes.filter(placed);
+    var l = boxes.filter(function (x) { return x.loc === wayNow.loc && placed(x); })[0] || withPlace[0];
     if (!p) { $('mapSteps').innerHTML = ''; return; }
+    var cur = wayNow.loc && boxes.some(function (x) { return x.loc === wayNow.loc; }) ? wayNow.loc : (l && l.loc);
+    /* the part sits in several boxes: one button per box, tap it to walk there */
+    var picker = boxes.length > 1 ? '<div class="boxpick"><div class="bp-h">📦 In <b>' + boxes.length + ' boxes</b>: tap the one you want</div>' + boxes.map(function (x) {
+      var pl2 = placeOf(x.loc), ok = placed(x);
+      return '<button type="button" class="bp' + (x.loc === cur ? ' on' : '') + (ok ? '' : ' noplace') + '" data-wayloc="' + esc(x.loc) + '"><b class="mono">' + esc(x.loc) + '</b><span class="bq">' + num(x.qty) + ' pcs</span>' +
+        '<small>' + (ok ? 'Rack ' + esc(pl2.rack) + ' · shelf ' + pl2.shelf + ' · box ' + pl2.slot : 'place on the map not set') + '</small></button>';
+    }).join('') + '</div>' : '';
+    var bindPicker = function () { qsa('#mapSteps [data-wayloc]').forEach(function (b) { b.onclick = function () { wayNow.loc = b.dataset.wayloc; renderMap(); }; }); };
+    var chosen = boxes.filter(function (x) { return x.loc === cur; })[0];
+    if (chosen && !placed(chosen)) {   // the chosen box has no place yet
+      $('mapTop').innerHTML = topSvg(m); $('rackCard').style.display = 'none';
+      $('mapSteps').innerHTML = '<div class="steps"><b>' + esc(p.name) + '</b> <span class="mono">' + esc(codeOf(p)) + '</span>' + picker +
+        '<div class="warn">Box <b class="mono">' + esc(chosen.loc) + '</b> (' + num(chosen.qty) + ' pcs) has no place on the map yet. ' + (isSup() ? '<button type="button" class="pvbtn" id="wayPlace">📍 Set place of ' + esc(chosen.loc) + '</button>' : 'Ask a supervisor to set it (Boxes → Set place).') + '</div></div>';
+      if ($('wayPlace')) $('wayPlace').onclick = function () { askPlace(chosen.loc, renderMap); };
+      bindPicker(); return;
+    }
     if (!l) {
       $('mapTop').innerHTML = topSvg(m); $('rackCard').style.display = 'none';
       $('mapSteps').innerHTML = '<div class="warn"><b>' + esc(p.name) + '</b>: ' + (boxes.length ? 'it is in ' + esc(boxes.map(function (x) { return x.loc + ' (' + num(x.qty) + ')'; }).join(', ')) + ', but the place of ' + (boxes.length > 1 ? 'these boxes' : 'that box') + ' on the map is not set yet. ' + (isSup() ? '<button type="button" class="pvbtn" id="wayPlace">📍 Set place of ' + esc(boxes[0].loc) + '</button>' : 'Ask a supervisor to set it (Boxes → Set place).') : 'none in stock right now.') + '</div>';
@@ -1617,15 +1634,14 @@
     $('mapTop').innerHTML = topSvg(m, { hi: r.id, path: path });
     $('rackCard').style.display = ''; $('rackCap').textContent = 'Rack ' + r.id + ' from the front' + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '');
     $('mapRack').innerHTML = rackSvg(r, pl, l.loc);
-    var others = withPlace.slice(1).map(function (x) { return x.loc + ' (' + placeText(placeOf(x.loc)) + ', ' + num(x.qty) + ' pcs)'; });
-    $('mapSteps').innerHTML = '<div class="steps"><b>' + esc(p.name) + '</b> <span class="mono">' + esc(codeOf(p)) + '</span>' +
+    $('mapSteps').innerHTML = '<div class="steps"><b>' + esc(p.name) + '</b> <span class="mono">' + esc(codeOf(p)) + '</span>' + picker +
       '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + r.id + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + (r.name ? ' · ' + esc(r.name) : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
       '<li>Stand in front of the rack and face it.</li>' +
       '<li>Count the shelves from the bottom: <b>' + ordinal(pl.shelf) + ' shelf</b>' + (kindName ? ' (' + kindPlural + ')' : '') + '.</li>' +
       '<li>Count the ' + (kindPlural || 'boxes') + ' from your left: <b>' + ordinal(pl.slot) + ' ' + (kindName || 'box') + '</b>, label <b class="mono">' + esc(l.loc) + '</b>.</li>' +
       '<li>Take <b>' + esc(p.name) + '</b> (' + num(l.qty) + ' in that box). Then use <b>− Take out</b> in the app.</li></ol>' +
-      (others.length ? '<p class="hint">Also in: ' + esc(others.join(' · ')) + '</p>' : '') +
       '<div class="btns"><button type="button" class="big" id="wayAgain">▶ Walk again</button><button type="button" class="big go" id="wayOpen">Open the part</button></div></div>';
+    bindPicker();
     $('wayAgain').onclick = function () { animateWalk(path); };
     $('wayOpen').onclick = function () { openPart(p.sku, l.loc); };
     animateWalk(path);
@@ -1634,7 +1650,7 @@
     var v = this.value.trim(); if (!v) { $('mapHits').innerHTML = ''; return; }
     var hits = matchParts(v).filter(function (p) { return stockOf(p.sku).total > 0; }).slice(0, 8);
     $('mapHits').innerHTML = hits.length ? hits.map(function (p) {
-      return '<button type="button" class="ordrow" data-way="' + esc(p.sku) + '"><span class="pc-ph' + (p.photo_id ? '" data-photo="' + esc(p.photo_id) + '"' : ' none"') + '></span><span class="ot"><b>' + esc(p.name) + '</b><small class="mono">' + esc(codeOf(p)) + ' · ' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + stockOf(p.sku).total + ' in stock</small></span><span class="oq">🧭</span></button>';
+      return '<button type="button" class="ordrow" data-way="' + esc(p.sku) + '"><span class="pc-ph' + (p.photo_id ? '" data-photo="' + esc(p.photo_id) + '"' : ' none"') + '></span><span class="ot"><b>' + esc(p.name) + '</b><small class="mono">' + esc(codeOf(p)) + ' · ' + esc(MODEL_TAG[p.model] || p.model) + ' · ' + stockOf(p.sku).total + ' in stock' + (function (n) { return n > 1 ? ' · in ' + n + ' boxes' : ''; })((BY[p.sku] || []).filter(function (l) { return num(l.qty) > 0; }).length) + '</small></span><span class="oq">🧭</span></button>';
     }).join('') : '<p class="hint">No part in stock matches. Try another word.</p>';
     qsa('#mapHits [data-way]').forEach(function (b) { b.onclick = function () { showWay(b.dataset.way); renderMap(); }; });
     setTimeout(fillPhotos, 0);

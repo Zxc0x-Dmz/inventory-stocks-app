@@ -585,3 +585,13 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 .ripple { position: absolute; border-radius: 50%; pointer-events: none; transform: scale(0); opacity: .45; background: currentColor; animation: ripple .5s ease-out forwards; }
 @keyframes ripple { to { transform: scale(2.6); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { button, button:active { transition: none; transform: none; } .ripple { display: none; } }
+
+/* map: choose which box of a part to walk to */
+.boxpick { margin: 10px 0 4px; }
+.bp-h { font-size: 14px; margin-bottom: 6px; }
+.boxpick .bp { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 150px; margin: 0 6px 6px 0; padding: 8px 12px; border: 2px solid var(--line); border-radius: 12px; background: #fff; text-align: left; }
+.boxpick .bp .bq { font-size: 18px; font-weight: 800; }
+.boxpick .bp small { color: var(--mute); font-size: 12px; }
+.boxpick .bp.on { border-color: #ffb300; background: #fff8e1; box-shadow: 0 0 0 2px #ffb30055; }
+.boxpick .bp.noplace small { color: var(--bad); }
+@media (hover: hover) { .boxpick .bp:not(.on):hover { background: #e3eefc; border-color: var(--accent); } }
