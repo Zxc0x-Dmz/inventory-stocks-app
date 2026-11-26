@@ -563,3 +563,25 @@ table.keys kbd { font-family: Consolas, monospace; background: #f6f7f9; border: 
 .draftnote { background: #fff8ec; border: 2px solid #f0b44c; border-radius: 14px; padding: 10px 14px; margin: 0 0 10px; font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .btns.three { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 @media (max-width: 520px) { .btns.three { grid-template-columns: 1fr; } }
+
+/* ---------- buttons: hover colour + press animation (2.32) ---------- */
+button { position: relative; overflow: hidden; transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s, filter .15s, transform .08s; -webkit-tap-highlight-color: transparent; }
+button:not(:disabled):active { transform: scale(.95); }
+button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
+/* coloured / dark buttons get lighter and lift */
+@media (hover: hover) {
+  .big:not(:disabled):hover, .find:hover, .row2 button:hover, .mapfloat button:not([disabled]):hover, .list .item button.ok:hover,
+  .chip.on:hover, .acts button.on:hover, .seg button.on:hover, .toast button:hover { filter: brightness(1.15); box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+  /* light buttons get a blue tint */
+  .pvbtn:hover, .chip:not(.on):hover, .acts button:not(.on):hover, .moreacts button:hover, .stepper button:hover, .list .item button:not(.ok):not(.no):hover,
+  .mapedit .tools button:not(.on):hover, .mapedit .rkpanel button:hover, .mapfloat.hint button:hover, .boxchip:not(.on):hover, .pickbox:not(.on):hover,
+  .kindbtn:not(.on):hover, .rs:not(.on):hover, .mcard:not(.on):hover, .photobtn:hover, .cam:hover, .packbtn:hover, .ordrow:hover, .lk:hover, .eye:hover, .scanbtn:hover {
+    background-color: #e3eefc; border-color: var(--accent); color: #0b4ea3; }
+  .list .item button.no:hover { background: #f9d3cf; }
+  .seg button:not(.on):hover { background: rgba(255,255,255,.6); color: var(--ink); }
+  .tabs button:not(.on):hover { background: #eef3fa; color: var(--ink); }
+}
+/* the ripple that spreads from where you clicked */
+.ripple { position: absolute; border-radius: 50%; pointer-events: none; transform: scale(0); opacity: .45; background: currentColor; animation: ripple .5s ease-out forwards; }
+@keyframes ripple { to { transform: scale(2.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { button, button:active { transition: none; transform: none; } .ripple { display: none; } }

@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.31 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.32 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -489,6 +489,15 @@
 
   /* ---------------- modal ---------------- */
   var modalCb = null;
+  /* click ripple on every button (works for buttons drawn later too) */
+  document.addEventListener('pointerdown', function (ev) {
+    var b = ev.target.closest && ev.target.closest('button');
+    if (!b || b.disabled || b.closest('svg')) return;
+    var r = b.getBoundingClientRect(), size = Math.max(r.width, r.height), sp = document.createElement('span');
+    sp.className = 'ripple'; sp.style.width = sp.style.height = size + 'px';
+    sp.style.left = (ev.clientX - r.left - size / 2) + 'px'; sp.style.top = (ev.clientY - r.top - size / 2) + 'px';
+    b.appendChild(sp); setTimeout(function () { if (sp.parentNode) sp.parentNode.removeChild(sp); }, 550);
+  }, true);
   function modal(html, cb) {
     $('modalBody').innerHTML = html; modalCb = cb || null;
     $('modal').classList.remove('hidden');
