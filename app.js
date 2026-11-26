@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.23 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.24 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1229,47 +1229,90 @@
    * the front with the box lit up, and writes the directions. */
   var MAP_COLORS = { NB3: '#f57c00', OK4: '#1565c0', NB2: '#1f9d55', UNI: '#8a929e', '': '#5f6672' };
   var MAP_TAG = { NB3: 'C1', OK4: '400C', NB2: 'A200', UNI: 'Universal' };
+  /* Freeform map (v2): sizes in metres, any angle.  Every object has a centre x,y, length w (along its own x),
+   * depth d and angle a (degrees, clockwise).  The front of a rack (where you stand) and the inside of the
+   * entrance are its own +y side.  W,H = room size in metres; w,h = the same in half metres (kept for the backend). */
+  var THINGS = {
+    wall: { name: 'Wall', w: 2, d: 0.15, fill: '#3b4048' },
+    bench: { name: 'Workbench', w: 1.8, d: 0.8, fill: '#8d6e63' },
+    machine: { name: 'Machine / lift', w: 1.2, d: 1.2, fill: '#90a4ae' },
+    pillar: { name: 'Pillar', w: 0.4, d: 0.4, fill: '#455a64' },
+    area: { name: 'Floor area', w: 3, d: 2, fill: '#e3f2fd', walk: true },
+    label: { name: 'Text', w: 2, d: 0.5, walk: true }
+  };
+  function blankMap() { return { v: 2, W: 12, H: 8, w: 24, h: 16, door: { x: 0.1, y: 4, w: 1, d: 0.2, a: 270 }, racks: [], items: [] }; }
+  /** Old grid maps (1 square = 0.5 m) become freeform maps. */
+  function migrateMap(o) {
+    var m = blankMap(), H = 0.5, A = { S: 0, W: 90, N: 180, E: 270 };
+    m.W = o.w * H; m.H = o.h * H; m.w = o.w; m.h = o.h;
+    m.racks = (o.racks || []).map(function (r) {
+      var hor = r.dir === 'N' || r.dir === 'S';
+      return { id: r.id, x: hor ? (r.x + r.len / 2) * H : (r.x + .5) * H, y: hor ? (r.y + .5) * H : (r.y + r.len / 2) * H, w: r.len * H, d: H, a: A[r.dir] || 0,
+        shelves: r.shelves, slots: r.slots, model: r.model || '' };
+    });
+    m.items = (o.walls || []).map(function (c) { return { kind: 'wall', x: (c[0] + .5) * H, y: (c[1] + .5) * H, w: H, d: H, a: 0 }; });
+    var dx = o.door ? o.door.x : 0, dy = o.door ? o.door.y : 8;
+    m.door = { x: (dx + .5) * H, y: (dy + .5) * H, w: 1, d: 0.2, a: dx === 0 ? 270 : dx === o.w - 1 ? 90 : dy === 0 ? 0 : dy === o.h - 1 ? 180 : 270 };
+    return m;
+  }
   function mapData() {
     var row = (snap.settings || []).filter(function (r) { return r.key === 'map'; })[0], m = null;
     try { m = row && JSON.parse(row.value); } catch (e) { m = null; }
-    return m && m.racks ? m : { v: 1, w: 24, h: 16, door: { x: 0, y: 8 }, racks: [], walls: [] };
+    if (!m || !m.racks) return blankMap();
+    if (m.v !== 2) m = migrateMap(m);
+    m.items = m.items || [];
+    return m;
   }
   function rackOn(m, id) { return m.racks.filter(function (r) { return r.id === id; })[0]; }
   function rackModelOf(r) { return (r && r.model) || rackModel[r && r.id] || ''; }
-  function rackCells(r) {   // squares the rack stands on
-    var out = [], hor = r.dir === 'N' || r.dir === 'S';
-    for (var i = 0; i < r.len; i++) out.push(hor ? [r.x + i, r.y] : [r.x, r.y + i]);
-    return out;
-  }
-  /** Square in front of the rack at box `slot` (1 = left when you face the rack). */
-  function frontCell(r, slot) {
-    var off = Math.min(r.len - 1, Math.floor(((slot || 1) - 0.5) / Math.max(1, r.slots) * r.len));
-    if (r.dir === 'S') return [r.x + off, r.y + 1];
-    if (r.dir === 'N') return [r.x + r.len - 1 - off, r.y - 1];
-    if (r.dir === 'W') return [r.x - 1, r.y + off];
-    return [r.x + 1, r.y + r.len - 1 - off];   // E
-  }
-  function blockedSet(m, except) {
-    var b = {};
-    m.racks.forEach(function (r) { if (r !== except) rackCells(r).forEach(function (c) { b[c[0] + ',' + c[1]] = 1; }); });
-    (m.walls || []).forEach(function (c) { b[c[0] + ',' + c[1]] = 1; });
-    return b;
-  }
-  /** Shortest walk on the grid (4 directions) from the entrance to a square; null if there is no way. */
+  function toWorld(it, lx, ly) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [it.x + lx * c - ly * s, it.y + lx * s + ly * c]; }
+  function toLocal(it, px, py) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = px - it.x, dy = py - it.y; return [dx * c + dy * s, -dx * s + dy * c]; }
+  function covers(it, px, py, pad) { var l = toLocal(it, px, py); return Math.abs(l[0]) <= it.w / 2 + pad && Math.abs(l[1]) <= it.d / 2 + pad; }
+  /** Where you stand to reach box `slot` (1 = left when you face the rack): 40 cm in front of the rack. */
+  function frontPoint(r, slot) { var n = Math.max(1, r.slots); return toWorld(r, -r.w / 2 + ((slot || 1) - .5) / n * r.w, r.d / 2 + .4); }
+  function doorStart(m) { return toWorld(m.door, 0, .5); }
+  /** Walk from the entrance to a point, around racks, walls, benches, machines and pillars.  [[x,y] ...] in metres, or null. */
   function walkPath(m, to) {
-    var b = blockedSet(m), from = [m.door.x, m.door.y], key = function (c) { return c[0] + ',' + c[1]; };
-    if (b[key(to)] || to[0] < 0 || to[1] < 0 || to[0] >= m.w || to[1] >= m.h) return null;
-    var prev = {}, q = [from], seen = {}; seen[key(from)] = 1;
-    while (q.length) {
-      var c = q.shift();
-      if (c[0] === to[0] && c[1] === to[1]) { var path = [c]; while (prev[key(path[0])]) path.unshift(prev[key(path[0])]); return path; }
-      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
-        var n = [c[0] + d[0], c[1] + d[1]], k = key(n);
-        if (n[0] < 0 || n[1] < 0 || n[0] >= m.w || n[1] >= m.h || seen[k] || b[k]) return;
-        seen[k] = 1; prev[k] = c; q.push(n);
-      });
+    var G = 0.25, nx = Math.ceil(m.W / G), ny = Math.ceil(m.H / G), pad = 0.12;
+    var solid = m.racks.concat(m.items.filter(function (it) { return !(THINGS[it.kind] || {}).walk; }));
+    var bl = new Uint8Array(nx * ny);
+    for (var gy = 0; gy < ny; gy++) for (var gx = 0; gx < nx; gx++) {
+      var cx = (gx + .5) * G, cy = (gy + .5) * G;
+      for (var k = 0; k < solid.length; k++) if (covers(solid[k], cx, cy, pad)) { bl[gy * nx + gx] = 1; break; }
     }
-    return null;
+    var cellOf = function (pt) { return [Math.max(0, Math.min(nx - 1, Math.floor(pt[0] / G))), Math.max(0, Math.min(ny - 1, Math.floor(pt[1] / G)))]; };
+    var nearFree = function (c) {   // the nearest walkable square
+      if (!bl[c[1] * nx + c[0]]) return c;
+      for (var r = 1; r < 12; r++) for (var oy = -r; oy <= r; oy++) for (var ox = -r; ox <= r; ox++) {
+        var x = c[0] + ox, y = c[1] + oy; if (x >= 0 && y >= 0 && x < nx && y < ny && !bl[y * nx + x]) return [x, y];
+      }
+      return null;
+    };
+    var st = doorStart(m), A = nearFree(cellOf(st)), B = nearFree(cellOf(to)); if (!A || !B) return null;
+    var prev = new Int32Array(nx * ny).fill(-1), seen = new Uint8Array(nx * ny), q = [A[1] * nx + A[0]], goal = B[1] * nx + B[0], qi = 0;
+    seen[q[0]] = 1;
+    var D = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    while (qi < q.length) {
+      var cur = q[qi++]; if (cur === goal) break;
+      var x0 = cur % nx, y0 = (cur - x0) / nx;
+      for (var d = 0; d < 8; d++) {
+        var x1 = x0 + D[d][0], y1 = y0 + D[d][1]; if (x1 < 0 || y1 < 0 || x1 >= nx || y1 >= ny) continue;
+        var id = y1 * nx + x1; if (seen[id] || bl[id]) continue;
+        if (D[d][0] && D[d][1] && (bl[y0 * nx + x1] || bl[y1 * nx + x0])) continue;   // no cutting corners
+        seen[id] = 1; prev[id] = cur; q.push(id);
+      }
+    }
+    if (!seen[goal]) return null;
+    var cells = []; for (var c2 = goal; c2 !== -1; c2 = prev[c2]) cells.unshift(c2);
+    var pts = [st].concat(cells.map(function (c3) { var x = c3 % nx; return [(x + .5) * G, ((c3 - x) / nx + .5) * G]; })).concat([to]);
+    var clear = function (a, b) {   // straight line a-b stays on walkable squares
+      var n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (G / 2));
+      for (var t = 1; t < n; t++) { var c4 = cellOf([a[0] + (b[0] - a[0]) * t / n, a[1] + (b[1] - a[1]) * t / n]); if (bl[c4[1] * nx + c4[0]]) return false; }
+      return true;
+    };
+    var out = [pts[0]], i0 = 0;   // shorten: go straight where nothing is in the way
+    while (i0 < pts.length - 1) { var jj = pts.length - 1; while (jj > i0 + 1 && !clear(pts[i0], pts[jj])) jj--; out.push(pts[jj]); i0 = jj; }
+    return out;
   }
   /** Place of a box: "R01/3/2" from the Locations tab, or read from an old code R01-S3-B02. */
   function placeOf(loc) {
@@ -1281,7 +1324,7 @@
   function placeText(pl) { return 'Rack ' + pl.rack + ' · shelf ' + pl.shelf + ' from the bottom · box ' + pl.slot + ' from the left'; }
   function ordinal(n) { return n + (n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'); }
 
-  var CELL = 20;
+  var MS = 40;   // pixels per metre in the drawings
   function stickman(x, y, opts) {   // x,y = feet; opts.point = arm angle (degrees, 0 = right, -90 = up), opts.walk = leg phase
     opts = opts || {}; var s = opts.size || 1, lp = Math.sin(opts.walk || 0) * 5 * s, col = opts.color || '#14181f';
     var head = '<circle cx="' + x + '" cy="' + (y - 26 * s) + '" r="' + 4.5 * s + '" fill="#fff" stroke="' + col + '" stroke-width="' + 2 * s + '"/>';
@@ -1294,47 +1337,57 @@
     } else arms = '<line x1="' + (x - 7 * s - lp * .6) + '" y1="' + (y - 13 * s) + '" x2="' + x + '" y2="' + (y - 18 * s) + '"/><line x1="' + x + '" y1="' + (y - 18 * s) + '" x2="' + (x + 7 * s + lp * .6) + '" y2="' + (y - 13 * s) + '"/>';
     return '<g class="man" stroke="' + col + '" stroke-width="' + 2.2 * s + '" stroke-linecap="round" fill="none">' + body + legs + arms + head + '</g>';
   }
-  /** The entrance: a green door square, an arrow pointing into the room and a big "ENTRANCE" sign next to it. */
-  function doorSvg(m) {
-    var d = m.door, x = d.x * CELL, y = d.y * CELL, c = CELL / 2;
-    // which way is "into the room": away from the nearest wall
-    var side = d.x === 0 ? 'L' : d.x === m.w - 1 ? 'R' : d.y === 0 ? 'T' : d.y === m.h - 1 ? 'B' : 'L';
-    var dx = { L: 1, R: -1, T: 0, B: 0 }[side], dy = { L: 0, R: 0, T: 1, B: -1 }[side];
-    var ax = x + c + dx * CELL * 1.6, ay = y + c + dy * CELL * 1.6;   // arrow tip, inside the room
-    var lw = 92, lh = 22, lx = x + c + dx * CELL * 2.2 - (dx < 0 ? lw : dx > 0 ? 0 : lw / 2), ly = y + c + dy * CELL * 2.2 - (dy < 0 ? lh : dy > 0 ? 0 : lh / 2);
-    if (!dx) lx = Math.max(2, Math.min(m.w * CELL - lw - 2, lx)); else ly = Math.max(2, Math.min(m.h * CELL - lh - 2, ly - (dy ? 0 : 0)));
-    return '<g class="door"><rect x="' + x + '" y="' + y + '" width="' + CELL + '" height="' + CELL + '" fill="#1f9d55" stroke="#0f6b37" stroke-width="2"/>' +
-      '<text x="' + (x + c) + '" y="' + (y + c + 5) + '" text-anchor="middle" font-size="13">🚪</text>' +
-      '<line x1="' + (x + c + dx * CELL * .6) + '" y1="' + (y + c + dy * CELL * .6) + '" x2="' + ax + '" y2="' + ay + '" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>' +
-      '<polygon points="' + arrowHead(ax, ay, dx, dy) + '" fill="#1f9d55"/>' +
-      '<rect x="' + lx + '" y="' + ly + '" width="' + lw + '" height="' + lh + '" rx="5" fill="#1f9d55"/>' +
-      '<text x="' + (lx + lw / 2) + '" y="' + (ly + 15) + '" text-anchor="middle" font-size="12" font-weight="900" fill="#fff" letter-spacing="1">ENTRANCE</text></g>';
+  function itemSvg(it, kind, o) {
+    var S = MS, w = it.w * S, d = it.d * S, sel = o.sel === o.key, body;
+    if (kind === 'rack') {
+      var col = MAP_COLORS[rackModelOf(it)] || MAP_COLORS[''], lit = o.hi === it.id;
+      body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="' + col + '" opacity="' + (o.hi && !lit ? .35 : 1) + '"' + (lit ? ' stroke="#ffd400" stroke-width="5"' : '') + '/>' +
+        '<line x1="' + (-w / 2) + '" y1="' + (d / 2) + '" x2="' + (w / 2) + '" y2="' + (d / 2) + '" stroke="#fff" stroke-width="3" opacity=".95"/>' +
+        '<text x="0" y="' + Math.min(5, d / 4) + '" text-anchor="middle" font-size="' + Math.max(9, Math.min(14, d * .55)) + '" font-weight="800" fill="#fff">' + it.id + '</text>';
+    } else if (kind === 'door') {
+      body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="#1f9d55" stroke="#0f6b37" stroke-width="2"/>' +
+        '<line x1="0" y1="' + (d / 2) + '" x2="0" y2="' + (d / 2 + S * .7) + '" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>' +
+        '<polygon points="0,' + (d / 2 + S * .95) + ' -7,' + (d / 2 + S * .6) + ' 7,' + (d / 2 + S * .6) + '" fill="#1f9d55"/>';
+    } else {
+      var T = THINGS[kind] || THINGS.wall;
+      body = kind === 'label' ? '' : '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="' + (kind === 'pillar' ? 3 : 2) + '" fill="' + T.fill + '"' + (kind === 'area' ? ' stroke="#64b5f6" stroke-width="2" stroke-dasharray="6 4"' : '') + '/>';
+      var txt = it.text || (kind === 'bench' || kind === 'machine' ? T.name : '');
+      if (txt) body += '<text x="0" y="4" text-anchor="middle" font-size="' + (kind === 'label' ? 16 : 11) + '" font-weight="800" fill="' + (kind === 'area' || kind === 'label' ? '#0f4fa3' : '#fff') + '">' + esc(txt) + '</text>';
+      if (kind === 'label' && o.edit) body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="rgba(30,111,217,.06)" stroke="#9fc3f0" stroke-dasharray="4 3"/>' + body;
+    }
+    var hand = '';
+    if (sel) {   // edit handles: length (right), depth (back), rotate (round, above)
+      var hs = 9;
+      hand = '<rect x="' + (-w / 2 - 4) + '" y="' + (-d / 2 - 4) + '" width="' + (w + 8) + '" height="' + (d + 8) + '" fill="none" stroke="#14181f" stroke-width="2" stroke-dasharray="6 4"/>' +
+        '<line x1="0" y1="' + (-d / 2) + '" x2="0" y2="' + (-d / 2 - 30) + '" stroke="#1e6fd9" stroke-width="2"/>' +
+        '<circle data-h="rot" cx="0" cy="' + (-d / 2 - 30) + '" r="' + hs + '" fill="#1e6fd9" stroke="#fff" stroke-width="2"/>' +
+        (kind === 'door' ? '' : '<rect data-h="len" x="' + (w / 2 - hs) + '" y="' + (-hs) + '" width="' + 2 * hs + '" height="' + 2 * hs + '" rx="3" fill="#fff" stroke="#1e6fd9" stroke-width="3"/>' +
+        '<rect data-h="dep" x="' + (-hs) + '" y="' + (-d / 2 - hs) + '" width="' + 2 * hs + '" height="' + 2 * hs + '" rx="3" fill="#fff" stroke="#1e6fd9" stroke-width="3" transform="translate(' + (w / 4) + ',0)"/>');
+    }
+    return '<g data-it="' + o.key + '" transform="translate(' + (it.x * S) + ',' + (it.y * S) + ') rotate(' + (it.a || 0) + ')" style="cursor:' + (o.edit ? 'move' : 'default') + '">' + body + hand + '</g>';
   }
-  function arrowHead(x, y, dx, dy) {
-    var s = 7, px = -dy, py = dx;   // perpendicular
-    return [[x + dx * s, y + dy * s], [x + px * s, y + py * s], [x - px * s, y - py * s]].map(function (q) { return q[0] + ',' + q[1]; }).join(' ');
-  }
-  /** Top view SVG.  hi = rack id to light up, path = squares to walk, edit = editor highlights */
-  function topSvg(m, o) {
-    o = o || {}; var W = m.w * CELL, H = m.h * CELL, g = '';
-    for (var gx = 0; gx <= m.w; gx++) g += '<line x1="' + gx * CELL + '" y1="0" x2="' + gx * CELL + '" y2="' + H + '"/>';
-    for (var gy = 0; gy <= m.h; gy++) g += '<line x1="0" y1="' + gy * CELL + '" x2="' + W + '" y2="' + gy * CELL + '"/>';
-    var walls = (m.walls || []).map(function (c) { return '<rect x="' + c[0] * CELL + '" y="' + c[1] * CELL + '" width="' + CELL + '" height="' + CELL + '" fill="#3b4048"/>'; }).join('');
-    var racks = m.racks.map(function (r) {
-      var cells = rackCells(r), x0 = cells[0][0] * CELL, y0 = cells[0][1] * CELL, hor = r.dir === 'N' || r.dir === 'S';
-      var w = hor ? r.len * CELL : CELL, h = hor ? CELL : r.len * CELL, col = MAP_COLORS[rackModelOf(r)] || MAP_COLORS[''];
-      var lit = o.hi === r.id, selc = o.sel === r.id;
-      var front = r.dir === 'S' ? [x0, y0 + h, x0 + w, y0 + h] : r.dir === 'N' ? [x0, y0, x0 + w, y0] : r.dir === 'W' ? [x0, y0, x0, y0 + h] : [x0 + w, y0, x0 + w, y0 + h];
-      return '<g class="rk" data-rack="' + r.id + '"><rect x="' + (x0 + 1) + '" y="' + (y0 + 1) + '" width="' + (w - 2) + '" height="' + (h - 2) + '" rx="3" fill="' + col + '" opacity="' + (o.hi && !lit ? .35 : 1) + '"' + (lit ? ' stroke="#ffd400" stroke-width="4"' : selc ? ' stroke="#14181f" stroke-width="3" stroke-dasharray="5 3"' : '') + '/>' +
-        '<line x1="' + front[0] + '" y1="' + front[1] + '" x2="' + front[2] + '" y2="' + front[3] + '" stroke="#fff" stroke-width="3" opacity=".9"/>' +
-        '<text x="' + (x0 + w / 2) + '" y="' + (y0 + h / 2 + 4) + '" text-anchor="middle" font-size="' + (hor ? 11 : 9) + '" font-weight="800" fill="#fff"' + (hor ? '' : ' transform="rotate(-90 ' + (x0 + w / 2) + ' ' + (y0 + h / 2) + ')"') + '>' + r.id + '</text></g>';
-    }).join('');
-    var door = doorSvg(m);
+  /** Top view SVG content.  o.hi = rack to light up, o.path = walk, o.sel = selected key (editing), o.edit */
+  function topInner(m, o) {
+    o = o || {}; var S = MS, W = m.W * S, H = m.H * S, g = '';
+    for (var gx = 0; gx <= m.W + 1e-9; gx += .5) g += '<line x1="' + gx * S + '" y1="0" x2="' + gx * S + '" y2="' + H + '"' + (Math.abs(gx - Math.round(gx)) < 1e-9 ? ' stroke="#d9dde3"' : '') + '/>';
+    for (var gy = 0; gy <= m.H + 1e-9; gy += .5) g += '<line x1="0" y1="' + gy * S + '" x2="' + W + '" y2="' + gy * S + '"' + (Math.abs(gy - Math.round(gy)) < 1e-9 ? ' stroke="#d9dde3"' : '') + '/>';
+    var items = m.items.map(function (it, n) { return { it: it, n: n }; });
+    var under = items.filter(function (x) { return x.it.kind === 'area'; }), over = items.filter(function (x) { return x.it.kind !== 'area' && x.it.kind !== 'label'; }), labels = items.filter(function (x) { return x.it.kind === 'label'; });
+    var draw = function (x) { return itemSvg(x.it, x.it.kind, { key: 'i' + x.n, sel: o.sel, edit: o.edit }); };
     var path = '';
-    if (o.path && o.path.length > 1) path = '<polyline points="' + o.path.map(function (c) { return (c[0] * CELL + CELL / 2) + ',' + (c[1] * CELL + CELL / 2); }).join(' ') + '" fill="none" stroke="#ffb300" stroke-width="4" stroke-dasharray="7 5" stroke-linecap="round" stroke-linejoin="round"/>' +
-      '<circle cx="' + (o.path[o.path.length - 1][0] * CELL + CELL / 2) + '" cy="' + (o.path[o.path.length - 1][1] * CELL + CELL / 2) + '" r="6" fill="#ffb300"/>';
-    return '<svg viewBox="-2 -2 ' + (W + 4) + ' ' + (H + 4) + '" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#f7f8fa"/><g stroke="#e3e6ea" stroke-width="1">' + g + '</g>' +
-      walls + racks + path + door + '<g id="manLayer"></g></svg>';
+    if (o.path && o.path.length > 1) {
+      var last = o.path[o.path.length - 1];
+      path = '<polyline points="' + o.path.map(function (c) { return c[0] * S + ',' + c[1] * S; }).join(' ') + '" fill="none" stroke="#ffb300" stroke-width="5" stroke-dasharray="9 6" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<circle cx="' + last[0] * S + '" cy="' + last[1] * S + '" r="7" fill="#ffb300"/>';
+    }
+    var dp = toWorld(m.door, 0, 1.45), sign = '<g pointer-events="none"><rect x="' + (dp[0] * S - 48) + '" y="' + (dp[1] * S - 12) + '" width="96" height="24" rx="6" fill="#1f9d55"/><text x="' + dp[0] * S + '" y="' + (dp[1] * S + 5) + '" text-anchor="middle" font-size="13" font-weight="900" fill="#fff" letter-spacing="1">🚪 ENTRANCE</text></g>';
+    return '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#f7f8fa"/><g stroke="#eceef1" stroke-width="1">' + g + '</g>' +
+      under.map(draw).join('') + over.map(draw).join('') +
+      m.racks.map(function (r) { return itemSvg(r, 'rack', { key: 'r' + r.id, hi: o.hi, sel: o.sel, edit: o.edit }); }).join('') +
+      labels.map(draw).join('') + path + itemSvg(m.door, 'door', { key: 'door', sel: o.sel, edit: o.edit }) + sign + '<g id="manLayer"></g>';
+  }
+  function topSvg(m, o) {
+    return '<svg viewBox="-60 -60 ' + (m.W * MS + 120) + ' ' + (m.H * MS + 120) + '" xmlns="http://www.w3.org/2000/svg"><g id="mapContent">' + topInner(m, o) + '</g></svg>';
   }
   /** Front view of a rack: shelves (1 = bottom) and boxes (1 = left), the target box lit, the stickman pointing at it. */
   function rackSvg(r, pl, label) {
@@ -1363,16 +1416,17 @@
   var walkTimer = null;
   function animateWalk(path, done) {
     clearInterval(walkTimer);
-    var layer = document.querySelector('#mapTop #manLayer'); if (!layer || !path || !path.length) { if (done) done(); return; }
-    var pts = path.map(function (c) { return [c[0] * CELL + CELL / 2, c[1] * CELL + CELL / 2 + 8]; }), i = 0, t = 0, step = 0;
+    var layer = document.querySelector('#mapTop #manLayer'); if (!layer || !path || path.length < 2) { if (done) done(); return; }
+    var pts = path.map(function (c) { return [c[0] * MS, c[1] * MS]; }), seg = 0, pos = 0, step = 0, speed = 6;
     walkTimer = setInterval(function () {
       if (!document.body.contains(layer)) { clearInterval(walkTimer); return; }
-      t += 0.12; step += 0.9;
-      if (t >= 1) { t = 0; i++; }
-      if (i >= pts.length - 1) { clearInterval(walkTimer); var e = pts[pts.length - 1]; layer.innerHTML = stickman(e[0], e[1], { size: .8, color: '#b42318' }); if (done) done(); return; }
-      var a = pts[i], b = pts[i + 1], x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t;
-      layer.innerHTML = stickman(x, y, { size: .8, walk: step, color: '#b42318' });
-    }, 45);
+      var a = pts[seg], b = pts[seg + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      pos += speed; step += .9;
+      while (pos >= L && seg < pts.length - 2) { pos -= L; seg++; a = pts[seg]; b = pts[seg + 1]; L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; }
+      if (seg >= pts.length - 2 && pos >= L) { clearInterval(walkTimer); var e = pts[pts.length - 1]; layer.innerHTML = stickman(e[0], e[1] + 8, { size: 1, color: '#b42318' }); if (done) done(); return; }
+      var t = Math.min(1, pos / L);
+      layer.innerHTML = stickman(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t + 8, { size: 1, walk: step, color: '#b42318' });
+    }, 40);
   }
 
   /* ---- Find a part ---- */
@@ -1404,7 +1458,7 @@
       if ($('wayPlace')) $('wayPlace').onclick = function () { askPlace(boxes[0].loc, renderMap); };
       return;
     }
-    var pl = placeOf(l.loc), r = rackOn(m, pl.rack), mk = rackModelOf(r), path = walkPath(m, frontCell(r, pl.slot));
+    var pl = placeOf(l.loc), r = rackOn(m, pl.rack), mk = rackModelOf(r), path = walkPath(m, frontPoint(r, pl.slot));
     var col = MAP_COLORS[mk] || MAP_COLORS[''];
     $('mapTop').innerHTML = topSvg(m, { hi: r.id, path: path });
     $('rackCard').style.display = ''; $('rackCap').textContent = 'Rack ' + r.id + ' from the front' + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '');
@@ -1437,7 +1491,7 @@
     var m = mapData(), cur = placeOf(loc) || {}, racks = m.racks.length ? m.racks.map(function (r) { return r.id; }) : RACKS.map(function (r) { return r.loc; });
     var rk = cur.rack && racks.indexOf(cur.rack) >= 0 ? cur.rack : racks[0];
     var draw = function () {
-      var r = rackOn(m, rk) || { id: rk, shelves: 6, slots: 8, dir: 'S' }, sh = Math.min(cur.shelf || 1, r.shelves), sl = Math.min(cur.slot || 1, r.slots);
+      var r = rackOn(m, rk) || { id: rk, shelves: 6, slots: 8 }, sh = Math.min(cur.shelf || 1, r.shelves), sl = Math.min(cur.slot || 1, r.slots);
       modal('<h3 class="formtitle">📍 Where is ' + esc(normLoc_(loc)) + '?</h3>' +
         '<label class="lbl">Rack</label><div class="rsrow">' + racks.map(function (id) { var rr = rackOn(m, id); return '<button type="button" class="rs' + (id === rk ? ' on' : '') + '" data-prk="' + id + '" style="' + (rr ? 'border-color:' + (MAP_COLORS[rackModelOf(rr)] || '') : '') + '">' + id + '</button>'; }).join('') + '</div>' +
         '<p class="hint">Tap the shelf and box in the rack below (shelf 1 is the bottom, boxes counted from the left).</p><div id="placePick">' + rackSvg(r, { shelf: sh, slot: sl }, normLoc_(loc)) + '</div>' +
@@ -1463,79 +1517,125 @@
     draw();
   }
 
-  /* ---- Map editor (supervisors) ---- */
-  var mapEd = null;   // {m, tool, sel}
-  $('mapEditOpen').onclick = function () { mapEd = { m: JSON.parse(JSON.stringify(mapData())), tool: 'rack', sel: null }; renderMap(); };
-  function fits(m, r) {
-    var b = blockedSet(m, r);
-    return rackCells(r).every(function (c) { return c[0] >= 0 && c[1] >= 0 && c[0] < m.w && c[1] < m.h && !b[c[0] + ',' + c[1]] && !(c[0] === m.door.x && c[1] === m.door.y); });
+  /* ---- Map editor (supervisors): freeform ----
+   * Drag to move.  Round handle: rotate (snaps every 5°).  Square handles: length and depth.  Or type the numbers.
+   * Add racks, walls, workbenches, machines, pillars, floor areas and text.  The entrance can be moved and turned. */
+  var mapEd = null;   // {m, sel, drag}
+  $('mapEditOpen').onclick = function () { mapEd = { m: JSON.parse(JSON.stringify(mapData())), sel: null, drag: null }; renderMap(); };
+  function edItem(key) {
+    var m = mapEd.m; if (!key) return null;
+    if (key === 'door') return m.door;
+    if (key[0] === 'r') return rackOn(m, key.slice(1));
+    return m.items[Number(key.slice(1))] || null;
   }
+  function edKind(key) { return key === 'door' ? 'door' : key && key[0] === 'r' ? 'rack' : key ? (edItem(key) || {}).kind : null; }
+  function r2(v, st) { st = st || .05; return Math.round(v / st) * st; }
+  function edRedraw() { var g = document.querySelector('#mapTop #mapContent'); if (g) g.innerHTML = topInner(mapEd.m, { sel: mapEd.sel, edit: true }); }
   function drawEditor() {
-    var e = mapEd, m = e.m, r = e.sel && rackOn(m, e.sel);
-    $('mapTop').innerHTML = topSvg(m, { sel: e.sel });
+    var e = mapEd, m = e.m;
+    $('mapTop').innerHTML = topSvg(m, { sel: e.sel, edit: true });
+    var svg = document.querySelector('#mapTop svg'); svg.style.touchAction = 'none';
     var free = RACKS.map(function (x) { return x.loc; }).filter(function (id) { return !rackOn(m, id); });
+    var key = e.sel, it = edItem(key), kind = edKind(key);
+    var num2 = function (f, v, step, unit) { return '<label class="grp">' + f + ' <input type="number" step="' + step + '" data-num="' + f + '" value="' + (Math.round(v * 100) / 100) + '" style="width:72px">' + unit + '</label>&nbsp; '; };
     $('mapEdit').style.display = '';
-    $('mapEdit').innerHTML = '<div class="tools">' + [['rack', '▭ Racks'], ['door', '🚪 Entrance'], ['wall', '▦ Walls / no-walk']].map(function (t) {
-        return '<button type="button" data-tool="' + t[0] + '" class="' + (e.tool === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') +
-      '<span class="grp">Room <button type="button" data-sz="w-">−</button><b>' + m.w + '×' + m.h + '</b><button type="button" data-sz="w+">+</button> wide · <button type="button" data-sz="h-">−</button><button type="button" data-sz="h+">+</button> deep</span></div>' +
-      '<p class="hint">' + ({ rack: r ? 'Tap an empty square to move ' + r.id + ' there. Tap another rack to select it.' : 'Tap an empty square to add rack ' + (free[0] || '(all placed)') + '. Tap a rack to change it.',
-        door: 'Tap the square where people come in (usually on the edge of the room). It shows as a green 🚪 ENTRANCE sign.', wall: 'Tap squares to mark walls, machines or other places you cannot walk through. Tap again to clear.' }[e.tool]) +
-      ' The white edge of a rack is its front (where you stand).</p>' +
-      (r ? '<div class="rkpanel"><b>' + r.id + '</b>' +
-        '<select data-rf="model">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((r.model || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' +
-        '<span class="grp">Front faces <button type="button" data-rf="rot">↻ ' + ({ S: 'down', W: 'left', N: 'up', E: 'right' }[r.dir]) + '</button></span>' +
-        '<span class="grp">Length <button type="button" data-rf="len-">−</button><b>' + r.len + '</b><button type="button" data-rf="len+">+</button></span>' +
-        '<span class="grp">Shelves <button type="button" data-rf="sh-">−</button><b>' + r.shelves + '</b><button type="button" data-rf="sh+">+</button></span>' +
-        '<span class="grp">Boxes per shelf <button type="button" data-rf="sl-">−</button><b>' + r.slots + '</b><button type="button" data-rf="sl+">+</button></span>' +
-        '<button type="button" data-rf="del">🗑 Remove</button><button type="button" data-rf="done">✓ Done</button></div>' : '') +
+    $('mapEdit').innerHTML = '<div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button>' +
+      Object.keys(THINGS).map(function (k) { return '<button type="button" data-add="' + k + '">' + THINGS[k].name + '</button>'; }).join('') + '</div>' +
+      '<div class="tools"><span class="grp">Room ' + num2('Width', m.W, .5, 'm') + num2('Depth', m.H, .5, 'm') + '</span></div>' +
+      '<p class="hint">Drag things to move them. Tap one to select it: the <b>round</b> handle turns it, the <b>square</b> handles change length and depth. The white edge of a rack is its front, where people stand. The arrow of the entrance points into the room.</p>' +
+      (it ? '<div class="rkpanel"><b>' + (kind === 'rack' ? 'Rack ' + it.id : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name) + '</b>' +
+        (kind === 'rack' ? '<select data-f="id">' + [it.id].concat(free).map(function (id) { return '<option' + (id === it.id ? ' selected' : '') + '>' + id + '</option>'; }).join('') + '</select>' +
+          '<select data-f="model">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((it.model || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' : '') +
+        (kind === 'area' || kind === 'label' ? '<label class="grp">Text <input data-f="text" value="' + esc(it.text || '') + '" placeholder="' + (kind === 'area' ? 'e.g. Scooter parking' : 'e.g. Office') + '" style="width:150px"></label>' : '') +
+        (kind !== 'door' ? num2('Length', it.w, .05, 'm') + num2('Depth ', it.d, .05, 'm') : num2('Length', it.w, .05, 'm')) +
+        num2('Angle', it.a || 0, 5, '°') + '<button type="button" data-rot="-90">↺ 90°</button><button type="button" data-rot="90">↻ 90°</button>' +
+        (kind === 'rack' ? '<span class="grp">Shelves <button type="button" data-st="shelves-">−</button><b>' + it.shelves + '</b><button type="button" data-st="shelves+">+</button></span>' +
+          '<span class="grp">Boxes per shelf <button type="button" data-st="slots-">−</button><b>' + it.slots + '</b><button type="button" data-st="slots+">+</button></span>' : '') +
+        (kind !== 'door' ? '<button type="button" data-act="dup">⧉ Copy</button><button type="button" data-act="del">🗑 Remove</button>' : '') +
+        '<button type="button" data-act="done">✓ Done</button></div>' : '<p class="hint">Tap something on the map to change it.</p>') +
       '<div class="btns"><button type="button" class="big" id="mapEdCancel">Cancel</button><button type="button" class="big ok" id="mapEdSave">Save map</button></div>';
-    qsa('#mapEdit [data-tool]').forEach(function (b) { b.onclick = function () { e.tool = b.dataset.tool; e.sel = null; drawEditor(); }; });
-    qsa('#mapEdit [data-sz]').forEach(function (b) { b.onclick = function () {
-      var k = b.dataset.sz; if (k === 'w+') m.w = Math.min(60, m.w + 2); if (k === 'w-') m.w = Math.max(8, m.w - 2); if (k === 'h+') m.h = Math.min(60, m.h + 2); if (k === 'h-') m.h = Math.max(8, m.h - 2);
-      m.racks = m.racks.filter(function (x) { return rackCells(x).every(function (c) { return c[0] < m.w && c[1] < m.h; }); });
-      m.walls = (m.walls || []).filter(function (c) { return c[0] < m.w && c[1] < m.h; });
-      m.door.x = Math.min(m.door.x, m.w - 1); m.door.y = Math.min(m.door.y, m.h - 1); drawEditor(); }; });
-    qsa('#mapEdit [data-rf]').forEach(function (b) {
-      var ev = b.tagName === 'SELECT' ? 'onchange' : 'onclick';
-      b[ev] = function () {
-        var k = b.dataset.rf, was = JSON.stringify(r);
-        if (k === 'model') { r.model = b.value; }
-        else if (k === 'rot') { r.dir = { S: 'W', W: 'N', N: 'E', E: 'S' }[r.dir]; }
-        else if (k === 'len-') r.len = Math.max(1, r.len - 1); else if (k === 'len+') r.len = Math.min(30, r.len + 1);
-        else if (k === 'sh-') r.shelves = Math.max(1, r.shelves - 1); else if (k === 'sh+') r.shelves = Math.min(12, r.shelves + 1);
-        else if (k === 'sl-') r.slots = Math.max(1, r.slots - 1); else if (k === 'sl+') r.slots = Math.min(20, r.slots + 1);
-        else if (k === 'del') { m.racks = m.racks.filter(function (x) { return x !== r; }); e.sel = null; }
-        else if (k === 'done') e.sel = null;
-        if (k !== 'del' && k !== 'done' && !fits(m, r)) { var back = JSON.parse(was); Object.keys(back).forEach(function (q) { r[q] = back[q]; }); toast('No room for that: it would touch another rack, a wall or the edge', 'bad'); }
-        drawEditor();
+
+    var pt = function (ev) { var q = svg.createSVGPoint(); q.x = ev.clientX; q.y = ev.clientY; var r = q.matrixTransform(svg.getScreenCTM().inverse()); return [r.x / MS, r.y / MS]; };
+    var keepIn = function (o) { o.x = Math.max(0, Math.min(m.W, o.x)); o.y = Math.max(0, Math.min(m.H, o.y)); };
+    svg.onpointerdown = function (ev) {
+      var h = ev.target.closest('[data-h]'), g = ev.target.closest('[data-it]');
+      if (!g) { if (e.sel) { e.sel = null; drawEditor(); } return; }
+      var k = g.dataset.it, o = edItem(k); if (!o) return;
+      ev.preventDefault();
+      if (k !== e.sel && !h) { e.sel = k; drawEditor(); svg = document.querySelector('#mapTop svg'); }
+      e.drag = { mode: h ? h.dataset.h : 'move', key: k, start: pt(ev), orig: JSON.parse(JSON.stringify(o)) };
+      try { svg.setPointerCapture(ev.pointerId); } catch (er) {}
+    };
+    svg.onpointermove = function (ev) {
+      var dr = e.drag; if (!dr) return;
+      var o = edItem(dr.key), p0 = pt(ev), or = dr.orig;
+      if (dr.mode === 'move') { o.x = r2(or.x + p0[0] - dr.start[0]); o.y = r2(or.y + p0[1] - dr.start[1]); keepIn(o); }
+      else if (dr.mode === 'rot') { var ang = Math.atan2(p0[1] - or.y, p0[0] - or.x) * 180 / Math.PI + 90; o.a = ((Math.round(ang / 5) * 5) % 360 + 360) % 360; }
+      else if (dr.mode === 'len') { var lx = toLocal(or, p0[0], p0[1])[0], nw = Math.max(.2, r2(lx + or.w / 2)), sh = toWorld({ x: 0, y: 0, a: or.a }, (nw - or.w) / 2, 0); o.w = nw; o.x = or.x + sh[0]; o.y = or.y + sh[1]; }
+      else if (dr.mode === 'dep') { var ly = toLocal(or, p0[0], p0[1])[1], nd = Math.max(.1, r2(or.d / 2 - ly)), sh2 = toWorld({ x: 0, y: 0, a: or.a }, 0, -(nd - or.d) / 2); o.d = nd; o.x = or.x + sh2[0]; o.y = or.y + sh2[1]; }
+      edRedraw();
+    };
+    svg.onpointerup = svg.onpointercancel = function () { if (e.drag) { e.drag = null; drawEditor(); } };
+
+    qsa('#mapEdit [data-add]').forEach(function (b) { b.onclick = function () {
+      var k = b.dataset.add, cx = r2(m.W / 2, .5), cy = r2(m.H / 2, .5);
+      if (k === 'rack') {
+        if (!free.length) return toast('All 15 racks are on the map', 'bad');
+        m.racks.push({ id: free[0], x: cx, y: cy, w: 2, d: .5, a: 0, shelves: 5, slots: 6, model: rackModel[free[0]] || '' }); e.sel = 'r' + free[0];
+      } else {
+        var T = THINGS[k]; m.items.push({ kind: k, x: cx, y: cy, w: T.w, d: T.d, a: 0, text: k === 'label' ? 'Text' : '' }); e.sel = 'i' + (m.items.length - 1);
+      }
+      drawEditor();
+    }; });
+    qsa('#mapEdit [data-num]').forEach(function (inp) { inp.onchange = function () {
+      var f = inp.dataset.num.trim(), v = Number(inp.value); if (!isFinite(v)) return;
+      if (f === 'Width') { m.W = Math.max(3, Math.min(40, v)); m.w = Math.max(6, Math.round(m.W * 2)); }
+      else if (f === 'Depth' && !it) { m.H = Math.max(3, Math.min(40, v)); m.h = Math.max(6, Math.round(m.H * 2)); }
+      else if (it && f === 'Length') it.w = Math.max(.1, v);
+      else if (it && f === 'Depth') it.d = Math.max(.1, v);
+      else if (it && f === 'Angle') it.a = ((v % 360) + 360) % 360;
+      drawEditor();
+    }; });
+    // the room "Depth" and the object "Depth " share a word: the room inputs are the first two
+    var roomInputs = qsa('#mapEdit .tools [data-num]');
+    roomInputs.forEach(function (inp) { inp.onchange = function () {
+      var v = Number(inp.value); if (!isFinite(v)) return;
+      if (inp.dataset.num === 'Width') { m.W = Math.max(3, Math.min(40, v)); m.w = Math.max(6, Math.round(m.W * 2)); }
+      else { m.H = Math.max(3, Math.min(40, v)); m.h = Math.max(6, Math.round(m.H * 2)); }
+      drawEditor();
+    }; });
+    qsa('#mapEdit [data-rot]').forEach(function (b) { b.onclick = function () { it.a = (((it.a || 0) + Number(b.dataset.rot)) % 360 + 360) % 360; drawEditor(); }; });
+    qsa('#mapEdit [data-st]').forEach(function (b) { b.onclick = function () {
+      var f = b.dataset.st.slice(0, -1), up = b.dataset.st.slice(-1) === '+';
+      it[f] = Math.max(1, Math.min(f === 'shelves' ? 12 : 20, it[f] + (up ? 1 : -1))); drawEditor();
+    }; });
+    qsa('#mapEdit [data-f]').forEach(function (inp) {
+      inp[inp.tagName === 'SELECT' ? 'onchange' : 'oninput'] = function () {
+        var f = inp.dataset.f;
+        if (f === 'id') { it.id = inp.value; e.sel = 'r' + it.id; drawEditor(); return; }
+        it[f] = inp.value; if (inp.tagName === 'SELECT') drawEditor(); else edRedraw();
       };
     });
-    var svg = document.querySelector('#mapTop svg');
-    svg.addEventListener('click', function (ev) {
-      var pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; var q = pt.matrixTransform(svg.getScreenCTM().inverse());
-      var cx = Math.floor(q.x / CELL), cy = Math.floor(q.y / CELL); if (cx < 0 || cy < 0 || cx >= m.w || cy >= m.h) return;
-      var hitRack = m.racks.filter(function (x) { return rackCells(x).some(function (c) { return c[0] === cx && c[1] === cy; }); })[0];
-      if (e.tool === 'door') { if (hitRack) return toast('That square has a rack on it', 'bad'); m.door = { x: cx, y: cy }; return drawEditor(); }
-      if (e.tool === 'wall') {
-        if (hitRack || (m.door.x === cx && m.door.y === cy)) return;
-        var i = (m.walls || []).findIndex(function (c) { return c[0] === cx && c[1] === cy; });
-        m.walls = m.walls || []; if (i >= 0) m.walls.splice(i, 1); else m.walls.push([cx, cy]); return drawEditor();
+    qsa('#mapEdit [data-act]').forEach(function (b) { b.onclick = function () {
+      var a = b.dataset.act;
+      if (a === 'done') e.sel = null;
+      else if (a === 'del') { if (kind === 'rack') m.racks = m.racks.filter(function (x) { return x !== it; }); else m.items.splice(Number(key.slice(1)), 1); e.sel = null; }
+      else if (a === 'dup') {
+        var c = JSON.parse(JSON.stringify(it)), sh = toWorld({ x: 0, y: 0, a: it.a }, 0, -(it.d + .6)); c.x = it.x + sh[0]; c.y = it.y + sh[1];
+        if (kind === 'rack') { if (!free.length) return toast('All 15 racks are on the map', 'bad'); c.id = free[0]; m.racks.push(c); e.sel = 'r' + c.id; }
+        else { m.items.push(c); e.sel = 'i' + (m.items.length - 1); }
       }
-      if (hitRack) { e.sel = hitRack.id; return drawEditor(); }
-      if (r) { var ox = r.x, oy = r.y; r.x = cx; r.y = cy; if (!fits(m, r)) { r.x = ox; r.y = oy; toast('No room there', 'bad'); } return drawEditor(); }
-      if (!free.length) return toast('All 15 racks are on the map', 'bad');
-      var nr = { id: free[0], x: cx, y: cy, len: 4, dir: 'S', shelves: 5, slots: 6, model: rackModel[free[0]] || '' };
-      if (!fits(m, nr)) { nr.len = 1; if (!fits(m, nr)) return toast('No room there', 'bad'); }
-      m.racks.push(nr); e.sel = nr.id; drawEditor();
-    });
+      drawEditor();
+    }; });
     $('mapEdCancel').onclick = function () { mapEd = null; renderMap(); };
     $('mapEdSave').onclick = function () {
-      var bad = m.racks.filter(function (x) { return !walkPath(m, frontCell(x, 1)); }).map(function (x) { return x.id; });
+      m.v = 2; m.w = Math.max(6, Math.round(m.W * 2)); m.h = Math.max(6, Math.round(m.H * 2));
+      var bad = m.racks.filter(function (x) { return !walkPath(m, frontPoint(x, 1)); }).map(function (x) { return x.id; });
       api('saveMap', { map: m }).then(function () {
         var row = (snap.settings = snap.settings || []).filter(function (x) { return x.key === 'map'; })[0];
         if (row) row.value = JSON.stringify(m); else snap.settings.push({ key: 'map', value: JSON.stringify(m) });
         m.racks.forEach(function (x) { if (x.model) rackModel[x.id] = x.model; }); save('inv.rackModel', rackModel);
-        mapEd = null; toast('Workshop map saved' + (bad.length ? '. No walkway reaches the front of ' + bad.join(', ') + ': check walls and rack direction.' : ''), bad.length ? 'bad' : 'good'); renderMap();
+        mapEd = null; toast('Workshop map saved' + (bad.length ? '. Nobody can walk to the front of ' + bad.join(', ') + ': check walls and which way the rack faces.' : ''), bad.length ? 'bad' : 'good'); renderMap();
       }).catch(function (er) { toast(er.business ? er.message : 'Saving needs a connection. Try again.', 'bad'); });
     };
   }
