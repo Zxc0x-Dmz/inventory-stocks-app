@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.36 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.37 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -310,8 +310,9 @@
       if (a) a.qty = String(r.loc.qty);
       if (b) b.qty = String(r.to.qty);
       if (r.version) snap.version = r.version;
+      if (next.op === 'setPlace') (BOXES[normLoc_(next.p.loc)] || []).forEach(function (l2) { l2.place = next.p.place; });
       flushing = false; renderAll(); flush();
-      if (next.op === 'putAway' || next.op === 'moveStock' || r.released) refresh();   // a box was set up, or let go of a part
+      if (next.op === 'putAway' || next.op === 'moveStock' || r.released || (next.op === 'setPlace' && !queue.some(function (q2) { return q2.status === 'wait'; }))) refresh();   // a box was set up, or let go of a part
     }).catch(function (e) {
       flushing = false;
       if (!e.business) { online = false; setStatus(); setTimeout(flush, 8000); return; }
@@ -948,7 +949,7 @@
       (p.notes && !/^Catalogue code /.test(p.notes) ? '<p class="hint">' + esc(p.notes.replace(/ · Catalogue code \S+$/, '')) + '</p>' : '');
     if (!mode) {
       h += (st.locs.length ? '<label class="lbl">Where it is</label>' + boxChips(st) : '') +
-        (st.locs.length ? '<button type="button" class="photobtn wayBtn" id="doWay">🧭 Show me the way</button>' : '') +
+        (st.locs.length ? '<div class="wayrow"><button type="button" class="photobtn wayBtn" id="doWay">🧭 Show me the way</button><button type="button" class="photobtn" id="doPlace">📍 Box place</button></div>' : '') +
         '<div class="bigacts"><button type="button" class="big go" id="doOut">− Take out</button><button type="button" class="big ok" id="doAdd">+ Add stock</button></div>' +
         '<details class="more"><summary>More</summary><div class="moreacts"><button type="button" data-mode="RETURN">↩ Return</button><button type="button" data-mode="SCRAP">✕ Damaged</button><button type="button" data-mode="MOVE">⇄ Move to another box</button></div></details>';
     } else {
@@ -990,6 +991,11 @@
         sel.mode = 'OUT'; renderPart();
       };
       if ($('doWay')) $('doWay').onclick = function () { var sku = p.sku, box = sel.box; closeModal(); sel = null; showWay(sku, box); };
+      if ($('doPlace')) $('doPlace').onclick = function () {
+        var sku = p.sku, box = sel.box || (st.locs[0] && st.locs[0].loc);
+        if (!box) return toast('Tap a box first', 'bad');
+        askPlace(box, function () { openPart(sku, box); });
+      };
       $('doAdd').onclick = function () { sel.mode = 'ADD'; sel.pick = null; sel.kind = sel.box ? kindOf(sel.box) : 'BIN'; renderPart(); };
       qsa('#modalBody [data-mode]').forEach(function (b) {
         b.onclick = function () {
@@ -1047,6 +1053,10 @@
         enqueue('putAway', item, '+' + qty + ' ' + p.name + ' → ' + KIND[sel.kind].name.toLowerCase() + ' ' + to);
         var isNew = !L[to];
         toast('Added ' + qty + ' × ' + p.name + ' to ' + KIND[sel.kind].name.toLowerCase() + ' ' + to + (isNew ? ' (new: print its label later in Labels)' : ''), 'good');
+        if (!placeOf(to) && mapData().racks.length) {   // one time only: where does this box sit?
+          var later = function () {}; later.later = true;
+          setTimeout(function () { askPlace(to, later); }, 350);
+        }
       } else {
         if (!box) return toast('Tap the box to move from', 'bad');
         if (to === box) return toast('Choose a different box', 'bad');
@@ -1357,8 +1367,13 @@
     return out;
   }
   /** Place of a box: "R01/3/2" from the Locations tab, or read from an old code R01-S3-B02. */
+  function pendingPlace(loc) {
+    var k = normLoc_(loc), q = queue.filter(function (x) { return x.op === 'setPlace' && x.status === 'wait' && normLoc_(x.p.loc) === k; }).pop();
+    return q ? q.p.place : null;
+  }
   function placeOf(loc) {
-    var rows = BOXES[normLoc_(loc)] || [], pl = rows.map(function (r) { return r.place; }).filter(Boolean)[0];
+    var rows = BOXES[normLoc_(loc)] || [], pp = pendingPlace(loc), pl = pp != null ? pp : rows.map(function (r) { return r.place; }).filter(Boolean)[0];
+    if (pp === '') return null;
     if (pl) { var a = pl.split('/'); return { rack: a[0], shelf: Number(a[1]), slot: Number(a[2]) }; }
     var m = /^(R\d{2})-S(\d+)-B(\d+)/.exec(normLoc_(loc));
     return m ? { rack: m[1], shelf: Number(m[2]), slot: Number(m[3]) } : null;
@@ -1542,7 +1557,17 @@
     if (!R || x < RK.ox || x > RK.ox + RK.iw) return null;
     return { shelf: R.shelf, slot: Math.min(R.n, Math.floor((x - RK.ox) / (RK.iw / R.n)) + 1) };
   }
-  function rackSvg(r, pl, label) {
+  /** "shelf/slot" -> box code, for every box placed on rack id (skip = the box being placed) */
+  function rackOcc(id, skip) {
+    var occ = {};
+    Object.keys(BOXES).concat(queue.filter(function (x) { return x.op === 'setPlace' && x.status === 'wait'; }).map(function (x) { return normLoc_(x.p.loc); })).forEach(function (k) {
+      if (k === skip || occ.__seen && occ.__seen[k]) return;
+      var pl = placeOf(k); (occ.__seen = occ.__seen || {})[k] = 1;
+      if (pl && pl.rack === id) occ[pl.shelf + '/' + pl.slot] = k;
+    });
+    delete occ.__seen; return occ;
+  }
+  function rackSvg(r, pl, label, occ) {
     var RR = rackRows(r), ox = RK.ox, iw = RK.iw, W = ox + iw + 20, H = RR.bottom + 44, col = MAP_COLORS[rackModelOf(r)] || MAP_COLORS[''], out = '', target = null;
     out += '<rect x="' + (ox - 6) + '" y="' + (RK.oy - 6) + '" width="' + (iw + 12) + '" height="' + (RR.bottom - RK.oy + 12) + '" rx="4" fill="none" stroke="' + col + '" stroke-width="6"/>';
     RR.rows.forEach(function (q) {
@@ -1554,6 +1579,8 @@
         if (hit) target = [x + cw / 2, q.y + q.h / 2];
         out += '<rect x="' + (x + pad) + '" y="' + (q.y + 4) + '" width="' + Math.max(2, cw - 2 * pad) + '" height="' + (q.h - 8) + '" rx="3" fill="' + (hit ? '#ffd400' : tote ? '#ffffff' : '#dbe9fb') + '" stroke="' + (hit ? '#b07d00' : tote ? '#9aa1ab' : '#7fb0ec') + '" stroke-width="' + (hit ? 3 : 1.2) + '">' + (hit ? '<animate attributeName="opacity" values="1;.45;1" dur="1.1s" repeatCount="indefinite"/>' : '') + '</rect>';
         if (hit) out += '<text x="' + (x + cw / 2) + '" y="' + (q.y + q.h / 2 + 3) + '" text-anchor="middle" font-size="' + Math.min(9, cw / 5.5) + '" font-weight="800" fill="#14181f">' + esc(label || '') + '</text>';
+        else if (occ && occ[q.shelf + '/' + sl]) out += '<rect x="' + (x + pad) + '" y="' + (q.y + 4) + '" width="' + Math.max(2, cw - 2 * pad) + '" height="' + (q.h - 8) + '" rx="3" fill="' + (tote ? '#eceff3' : '#bcd6f6') + '" stroke="#5f6672" stroke-width="1.2"/>' +
+          '<text x="' + (x + cw / 2) + '" y="' + (q.y + q.h / 2 + 3) + '" text-anchor="middle" font-size="' + Math.min(8, cw / 6) + '" font-weight="700" fill="#37414f">' + esc(occ[q.shelf + '/' + sl]) + '</text>';
         else if (q.n <= 12) out += '<text x="' + (x + cw / 2) + '" y="' + (q.y + q.h - 7) + '" text-anchor="middle" font-size="7.5" fill="#9aa1ab">' + sl + '</text>';
       }
       out += '<line x1="' + (ox - 3) + '" y1="' + (q.y + q.h) + '" x2="' + (ox + iw + 3) + '" y2="' + (q.y + q.h) + '" stroke="#9aa1ab" stroke-width="2"/>';
@@ -1633,17 +1660,19 @@
     var col = MAP_COLORS[mk] || MAP_COLORS[''], lay = layersOf(r)[pl.shelf - 1], kindName = lay ? (lay.t === 'TOTE' ? 'white box' : 'blue bin') : '', kindPlural = lay ? (lay.t === 'TOTE' ? 'white boxes' : 'blue bins') : '';
     $('mapTop').innerHTML = topSvg(m, { hi: r.id, path: path });
     $('rackCard').style.display = ''; $('rackCap').textContent = 'Rack ' + r.id + ' from the front' + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '');
-    $('mapRack').innerHTML = rackSvg(r, pl, l.loc);
+    $('mapRack').innerHTML = rackSvg(r, pl, l.loc, rackOcc(r.id, l.loc));
     $('mapSteps').innerHTML = '<div class="steps"><b>' + esc(p.name) + '</b> <span class="mono">' + esc(codeOf(p)) + '</span>' + picker +
       '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + r.id + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + (r.name ? ' · ' + esc(r.name) : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
       '<li>Stand in front of the rack and face it.</li>' +
       '<li>Count the shelves from the bottom: <b>' + ordinal(pl.shelf) + ' shelf</b>' + (kindName ? ' (' + kindPlural + ')' : '') + '.</li>' +
       '<li>Count the ' + (kindPlural || 'boxes') + ' from your left: <b>' + ordinal(pl.slot) + ' ' + (kindName || 'box') + '</b>, label <b class="mono">' + esc(l.loc) + '</b>.</li>' +
       '<li>Take <b>' + esc(p.name) + '</b> (' + num(l.qty) + ' in that box). Then use <b>− Take out</b> in the app.</li></ol>' +
-      '<div class="btns"><button type="button" class="big" id="wayAgain">▶ Walk again</button><button type="button" class="big go" id="wayOpen">Open the part</button></div></div>';
+      '<div class="btns"><button type="button" class="big" id="wayAgain">▶ Walk again</button><button type="button" class="big go" id="wayOpen">Open the part</button></div>' +
+      '<p class="hint" style="text-align:center">Box moved? <button type="button" class="pvbtn" id="wayMove">📍 Change place of ' + esc(l.loc) + '</button></p></div>';
     bindPicker();
     $('wayAgain').onclick = function () { animateWalk(path); };
     $('wayOpen').onclick = function () { openPart(p.sku, l.loc); };
+    $('wayMove').onclick = function () { askPlace(l.loc, renderMap); };
     animateWalk(path);
   }
   $('mapQ').addEventListener('input', function () {
@@ -1660,28 +1689,45 @@
   function askPlace(loc, after) {
     var m = mapData(), cur = placeOf(loc) || {}, racks = m.racks.length ? m.racks.map(function (r) { return r.id; }) : RACKS.map(function (r) { return r.loc; });
     var rk = cur.rack && racks.indexOf(cur.rack) >= 0 ? cur.rack : racks[0];
+    var me = normLoc_(loc), was = placeOf(loc);
+    var firstFree = function (id) {   // a box without a place starts on the first empty spot (bottom shelf first)
+      var r0 = rackOn(m, id); if (!r0) return null; var occ0 = rackOcc(id, me), LL0 = layersOf(r0);
+      for (var a1 = 0; a1 < LL0.length; a1++) for (var b1 = 1; b1 <= LL0[a1].n; b1++) if (!occ0[(a1 + 1) + '/' + b1]) return { shelf: a1 + 1, slot: b1 };
+      return null;
+    };
+    if (!was) { var ff = firstFree(rk); if (ff) { cur.shelf = ff.shelf; cur.slot = ff.slot; } }
     var draw = function () {
       var r = rackOn(m, rk) || { id: rk, shelves: 6, slots: 8 }, LL = layersOf(r), sh = Math.min(cur.shelf || 1, LL.length), sl = Math.min(cur.slot || 1, LL[sh - 1].n);
-      modal('<h3 class="formtitle">📍 Where is ' + esc(normLoc_(loc)) + '?</h3>' +
+      var occ = rackOcc(rk, me), there = occ[sh + '/' + sl];
+      var parts = inBox(me).map(function (x) { return P[x.sku].name + ' (' + num(x.qty) + ')'; });
+      modal('<h3 class="formtitle">📍 Where is ' + esc(me) + '?</h3>' + (parts.length ? '<p class="hint" style="margin-top:-4px">' + esc(parts.join(' · ')) + '</p>' : '') +
         '<label class="lbl">Rack</label><div class="rsrow">' + racks.map(function (id) { var rr = rackOn(m, id); return '<button type="button" class="rs' + (id === rk ? ' on' : '') + '" data-prk="' + id + '" style="' + (rr ? 'border-color:' + (MAP_COLORS[rackModelOf(rr)] || '') : '') + '">' + id + '</button>'; }).join('') + '</div>' +
         '<p class="hint">Tap the shelf and box in the rack below (shelf 1 is the bottom, boxes counted from the left).</p><div id="placePick">' + rackSvg(r, { shelf: sh, slot: sl }, normLoc_(loc)) + '</div>' +
         '<p class="hint" id="placeTxt">' + esc(placeText({ rack: rk, shelf: sh, slot: sl })) + '</p>' +
-        '<div class="btns"><button type="button" class="big" data-x="close">Cancel</button><button type="button" class="big ok" data-x="stay" id="placeSave">Save place</button></div>');
+        (there ? '<div class="warn">That spot already has <b class="mono">' + esc(there) + '</b>. Saving <b>swaps</b> them: ' + esc(there) + (was ? ' goes to ' + esc(placeText(was)) : ' gets no place (set it later)') + '.</div>' : '<p class="hint">Grey boxes already have a box in them. Pick a taken one to swap the two boxes.</p>') +
+        '<div class="btns"><button type="button" class="big" data-x="close">' + (after && after.later ? 'Later' : 'Cancel') + '</button><button type="button" class="big ok" data-x="stay" id="placeSave">' + (there ? '⇄ Swap and save' : 'Save place') + '</button></div>' +
+        (was ? '<p class="hint" style="text-align:center"><button type="button" class="pvbtn" id="placeClear">Remove its place (box taken off the rack)</button></p>' : ''));
       cur.shelf = sh; cur.slot = sl;
-      qsa('#modalBody [data-prk]').forEach(function (b) { b.onclick = function () { rk = b.dataset.prk; draw(); }; });
+      qsa('#modalBody [data-prk]').forEach(function (b) { b.onclick = function () { rk = b.dataset.prk; if (!was) { var f2 = firstFree(rk); if (f2) { cur.shelf = f2.shelf; cur.slot = f2.slot; } } draw(); }; });
+      $('placePick').innerHTML = rackSvg(r, { shelf: sh, slot: sl }, me, occ);
       var svg = document.querySelector('#placePick svg');
       svg.addEventListener('click', function (e) {   // tap a box in the front view
         var pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; var q = pt.matrixTransform(svg.getScreenCTM().inverse());
         var hit = rackHit(r, q.x, q.y); if (!hit) return;
         cur.shelf = hit.shelf; cur.slot = hit.slot; draw();
       });
-      $('placeSave').onclick = function () {
-        var place = rk + '/' + cur.shelf + '/' + cur.slot;
-        api('setPlace', { loc: normLoc_(loc), place: place }).then(function () {
-          (BOXES[normLoc_(loc)] || []).forEach(function (l) { l.place = place; });
-          closeModal(); toast(normLoc_(loc) + ': ' + placeText({ rack: rk, shelf: cur.shelf, slot: cur.slot }), 'good'); renderAll(); if (after) after();
-        }).catch(function (e) { toast(e.business ? e.message : 'Saving needs a connection. Try again.', 'bad'); });
+      var put = function (box, place) {   // queued, so it also works for a box that is not sent yet, or offline
+        enqueue('setPlace', { id: uid(), loc: box, place: place }, '📍 ' + box + ' → ' + (place || 'no place'));
+        (BOXES[box] || []).forEach(function (l2) { l2.place = place; });
       };
+      $('placeSave').onclick = function () {
+        var place = rk + '/' + cur.shelf + '/' + cur.slot, other = rackOcc(rk, me)[cur.shelf + '/' + cur.slot];
+        if (other) put(other, was ? was.rack + '/' + was.shelf + '/' + was.slot : '');
+        put(me, place);
+        closeModal(); toast(me + ': ' + placeText({ rack: rk, shelf: cur.shelf, slot: cur.slot }) + (other ? '. ' + other + (was ? ' moved to its old spot.' : ' has no place now.') : ''), 'good');
+        renderAll(); if (typeof after === 'function') after();
+      };
+      if ($('placeClear')) $('placeClear').onclick = function () { put(me, ''); closeModal(); toast(me + ' has no place on the map now.', 'good'); renderAll(); if (typeof after === 'function') after(); };
     };
     draw();
   }

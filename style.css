@@ -595,3 +595,6 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 .boxpick .bp.on { border-color: #ffb300; background: #fff8e1; box-shadow: 0 0 0 2px #ffb30055; }
 .boxpick .bp.noplace small { color: var(--bad); }
 @media (hover: hover) { .boxpick .bp:not(.on):hover { background: #e3eefc; border-color: var(--accent); } }
+
+.wayrow { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+.wayrow .photobtn { width: 100%; margin: 0; }
