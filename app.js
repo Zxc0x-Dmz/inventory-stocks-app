@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.34 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.35 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1251,6 +1251,9 @@
     table: { name: 'Table', w: 1.6, d: 0.8, fill: '#a1887f' },
     chair: { name: 'Chair', w: 0.5, d: 0.5, fill: '#78909c' },
     tools: { name: 'Tool cabinet', short: 'Tools', w: 1.2, d: 0.6, fill: '#c62828' },
+    trolley: { name: 'Tool trolley', short: 'Trolley', w: 0.9, d: 0.5, fill: '#546e7a' },
+    dmgbin: { name: 'Damaged parts bin', short: 'Damaged parts', below: true, w: 0.6, d: 0.6, fill: '#e65100' },
+    trash: { name: 'Rubbish bin', short: 'Rubbish', below: true, w: 0.5, d: 0.5, fill: '#607d8b' },
     boxes: { name: 'Boxes / pallet', short: 'Boxes', w: 1.2, d: 1, fill: '#d7a86e' },
     hydrant: { name: 'Fire hydrant box', short: 'Fire hose', below: true, w: 0.9, d: 0.3, fill: '#d32f2f' },
     extinguisher: { name: 'Fire extinguisher', short: 'Extinguisher', below: true, w: 0.3, d: 0.3, fill: '#e53935' },
@@ -1396,6 +1399,23 @@
     tools: function (w, d, T) {
       var out = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="2" fill="' + T.fill + '" stroke="#8e0000" stroke-width="2"/>', n = Math.max(2, Math.round(w / 14));
       for (var i = 1; i < n; i++) { var x = -w / 2 + i * w / n; out += '<line x1="' + x + '" y1="' + (-d / 2 + 3) + '" x2="' + x + '" y2="' + (d / 2 - 3) + '" stroke="#ff8a80" stroke-width="1.5"/>'; }
+      return out;
+    },
+    trolley: function (w, d, T) {   // tool table on wheels: tray with a rim, two drawers, castors, push handle (left)
+      var c = Math.max(2.5, Math.min(w, d) * .12), hx = -w / 2 + 4;
+      return '<rect x="' + (-w / 2 + 6) + '" y="' + (-d / 2) + '" width="' + (w - 6) + '" height="' + d + '" rx="3" fill="' + T.fill + '" stroke="#263238" stroke-width="2"/>' +
+        '<rect x="' + (-w / 2 + 10) + '" y="' + (-d / 2 + 4) + '" width="' + (w - 14) + '" height="' + (d - 8) + '" rx="2" fill="#90a4ae"/>' +
+        '<line x1="' + (-w / 2 + 10 + (w - 14) / 2) + '" y1="' + (-d / 2 + 4) + '" x2="' + (-w / 2 + 10 + (w - 14) / 2) + '" y2="' + (d / 2 - 4) + '" stroke="#546e7a" stroke-width="1.5"/>' +
+        '<line x1="' + hx + '" y1="' + (-d / 2 + 3) + '" x2="' + hx + '" y2="' + (d / 2 - 3) + '" stroke="#263238" stroke-width="3" stroke-linecap="round"/>' +
+        [[-w / 2 + 9, -d / 2 + 3], [w / 2 - 3, -d / 2 + 3], [-w / 2 + 9, d / 2 - 3], [w / 2 - 3, d / 2 - 3]].map(function (p) { return '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + c + '" fill="#212121"/>'; }).join('');
+    },
+    dmgbin: function (w, d, T) { return FURN.bin(w, d, T, true); },
+    trash: function (w, d, T) { return FURN.bin(w, d, T, false); },
+    bin: function (w, d, T, warn) {   // wheelie bin from above: lid with grip, hinge at the back, warning mark for damaged parts
+      var out = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="' + Math.min(w, d) * .12 + '" fill="' + T.fill + '" stroke="rgba(0,0,0,.45)" stroke-width="2"/>' +
+        '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d * .16 + '" rx="2" fill="rgba(0,0,0,.35)"/>' +
+        '<rect x="' + (-w * .25) + '" y="' + (d / 2 - d * .2) + '" width="' + w * .5 + '" height="' + d * .1 + '" rx="2" fill="rgba(0,0,0,.4)"/>';
+      if (warn) { var t = Math.min(w, d) * .28; out += '<polygon points="0,' + (-t) + ' ' + t + ',' + t * .75 + ' ' + (-t) + ',' + t * .75 + '" fill="#ffd600" stroke="#212121" stroke-width="1.2" stroke-linejoin="round"/><text x="0" y="' + t * .55 + '" text-anchor="middle" font-size="' + t * 1.1 + '" font-weight="900" fill="#212121">!</text>'; }
       return out;
     },
     hydrant: function (w, d, T) {   // wall cabinet with a rolled hose
