@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.39 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.40 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -889,6 +889,36 @@
   }
 
   /** A box with one part: go straight on.  A box with several parts: show what is inside and let the user tap one. */
+  /** Supervisor: take pieces off a box because of a mistake (wrong entry, double add).  Not counted as used:
+   *  saved as a count correction (a supervisor count that is approved at once), so it shows in History as ADJUST. */
+  function askRemove(sku, box) {
+    var p = P[sku], locs = (BY[sku] || []).filter(function (l) { return num(l.qty) > 0; });
+    if (!locs.length) return toast('Nothing in stock to remove', 'bad');
+    var cur = locs.filter(function (l) { return l.loc === box; })[0] || locs[0];
+    var draw = function () {
+      modal('<h3 class="formtitle">🧹 Remove by mistake</h3><p class="hint"><b>' + esc(p.name) + '</b> · ' + esc(codeOf(p)) + '<br>For a wrong entry only. It is <b>not</b> counted as used or damaged; History shows it as a count correction by you.</p>' +
+        '<label class="lbl">From which box?</label><div class="chips">' + locs.map(function (l) { return '<button type="button" class="chip' + (l === cur ? ' on' : '') + '" data-rmb="' + esc(l.loc) + '">' + esc(l.loc) + ' · ' + num(l.qty) + '</button>'; }).join('') + '</div>' +
+        '<label class="lbl">How many to remove?</label><div class="stepper"><button type="button" data-step="-1">−</button><input id="rmQty" type="number" inputmode="numeric" min="1" value="1"><button type="button" data-step="1">+</button></div>' +
+        '<p class="hint" id="rmAfter"></p>' +
+        '<div class="btns"><button type="button" class="big" data-x="close">Cancel</button><button type="button" class="big bad" data-x="stay" id="rmGo">Remove</button></div>');
+      var upd = function () { var n = Math.round(num($('rmQty').value)); $('rmAfter').textContent = cur.loc + ': ' + num(cur.qty) + ' → ' + Math.max(0, num(cur.qty) - n); };
+      $('rmQty').addEventListener('input', upd); qsa('#modalBody .stepper button').forEach(function (b) { b.addEventListener('click', function () { setTimeout(upd, 0); }); }); upd();
+      qsa('#modalBody [data-rmb]').forEach(function (b) { b.onclick = function () { cur = locs.filter(function (l) { return l.loc === b.dataset.rmb; })[0]; draw(); }; });
+      $('rmGo').onclick = function () {
+        var n = Math.round(num($('rmQty').value)), have = num(cur.qty), target = have - n, id = 'RM' + uid();
+        if (n < 1) return toast('Enter how many', 'bad');
+        if (target < 0) return toast(cur.loc + ' only has ' + have, 'bad');
+        $('rmGo').disabled = true;
+        api('count', { id: id, loc: cur.loc, sku: sku, counted: target, attempt: 2, counter: 'Removed by mistake (' + cfg.user + ')' }).then(function () {
+          return api('resolveCount', { id: id, accept: true, counted: target, device: cfg.device });
+        }).then(function () {
+          cur.qty = String(target); closeModal(); renderAll(); if (sel && sel.sku === sku) renderPart();
+          toast('Removed ' + n + ' from ' + cur.loc + ' (now ' + target + '). Logged as a correction, not as used.', 'good');
+        }).catch(function (e) { $('rmGo').disabled = false; toast(e.business ? e.message : 'Removing needs a connection. Try again.', 'bad'); });
+      };
+    };
+    draw();
+  }
   function chooseInBox(box, cb, filter) {
     var rows = inBox(box).filter(filter || function () { return true; });
     if (!rows.length) return toast('Nothing usable in ' + box, 'bad');
@@ -1000,7 +1030,7 @@
       h += (st.locs.length ? '<label class="lbl">Where it is</label>' + boxChips(st) : '') +
         (st.locs.length ? '<div class="wayrow"><button type="button" class="photobtn wayBtn" id="doWay">🧭 Show me the way</button><button type="button" class="photobtn" id="doPlace">📍 Box place</button></div>' : '') +
         '<div class="bigacts"><button type="button" class="big go" id="doOut">− Take out</button><button type="button" class="big ok" id="doAdd">+ Add stock</button></div>' +
-        '<details class="more"><summary>More</summary><div class="moreacts"><button type="button" data-mode="RETURN">↩ Return</button><button type="button" data-mode="SCRAP">✕ Damaged</button><button type="button" data-mode="MOVE">⇄ Move to another box</button></div></details>';
+        '<details class="more"><summary>More</summary><div class="moreacts"><button type="button" data-mode="RETURN">↩ Return</button><button type="button" data-mode="SCRAP">✕ Damaged</button><button type="button" data-mode="MOVE">⇄ Move to another box</button>' + (isSup() ? '<button type="button" id="doRemove" class="rmv">🧹 Remove (mistake)</button>' : '') + '</div></details>';
     } else {
       var title = { OUT: 'Take out', ADD: 'Add stock', RETURN: 'Return unused parts', SCRAP: 'Write off damaged parts', MOVE: 'Move to another box' }[mode];
       h += '<h4 class="formtitle">' + title + '</h4>';
@@ -1056,6 +1086,7 @@
         askPlace(box, function () { openPart(sku, box); });
       };
       $('doAdd').onclick = function () { sel.mode = 'ADD'; sel.pick = null; sel.kind = sel.box ? kindOf(sel.box) : 'BIN'; renderPart(); };
+      if ($('doRemove')) $('doRemove').onclick = function () { var sku = p.sku, box = sel.box; askRemove(sku, box); };
       qsa('#modalBody [data-mode]').forEach(function (b) {
         b.onclick = function () {
           if (b.dataset.mode !== 'RETURN' && !st.locs.length) return toast('This part is not in any box yet.', 'bad');
@@ -1161,9 +1192,57 @@
     if (!inBox(loc.loc).length) { beep(false); toast(loc.loc + ' is empty. Use Add stock on a part first.', 'bad'); return; }
     beep(true); chooseInBox(loc.loc, go);
   }
+  /** Restock list: what you type filters the white boxes (box code, part, SKU, rack).  Empty: refill suggestions. */
+  function rsPlaceTxt(loc) { var pl = placeOf(loc); return pl ? 'Rack ' + pl.rack + ' · shelf ' + pl.shelf + ' · box ' + pl.slot : 'no place set'; }
+  function rsPick(loc, sku, dest) {
+    rs = { loc: loc, sku: sku }; var l = lk(loc, sku);
+    $('rsQty').value = Math.max(1, num(l && l.qty)); $('restockInput').value = ''; renderRestock();
+    if (dest && $('rsDest')) $('rsDest').value = dest;
+    if (dest) { var b = lk(dest, sku); if (b && num(b.min) > 0) $('rsQty').value = Math.max(1, Math.min(num(l.qty), num(b.min) * 2 - num(b.qty))); }
+    $('restockCard').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+  function renderRsList() {
+    var box = $('rsList'); if (!box) return;
+    if (rs) { box.innerHTML = ''; return; }
+    var q = $('restockInput').value.trim().toLowerCase(), words = q ? q.split(/\s+/) : [], rows = [];
+    var totes = [];
+    Object.keys(BOXES).forEach(function (k) { (BOXES[k] || []).forEach(function (l) { if (l.type === 'TOTE' && P[l.sku] && (rsMode === 'seal' || num(l.qty) > 0)) totes.push(l); }); });
+    if (words.length) {
+      rows = totes.filter(function (l) {
+        var p = P[l.sku], hay = (l.loc + ' ' + p.name + ' ' + codeOf(p) + ' ' + p.sku + ' ' + (MODEL_TAG[p.model] || '') + ' ' + rsPlaceTxt(l.loc) + ' ' + (l.place || '')).toLowerCase();
+        return words.every(function (w) { return hay.indexOf(w) >= 0; });
+      }).slice(0, 30).map(function (l) { return { l: l }; });
+      box.innerHTML = '<div class="rsh">' + (rows.length ? rows.length + ' white box' + (rows.length === 1 ? '' : 'es') + ' match' : 'No white box matches. Try a box code (C1-T006), a part name or a rack (R03).') + '</div>' + rsRows(rows);
+    } else if (rsMode === 'open') {
+      // refill suggestions: blue bins at or below their minimum that a white box can refill
+      var bins = [];
+      Object.keys(BOXES).forEach(function (k) { (BOXES[k] || []).forEach(function (b) { if (b.type === 'BIN' && P[b.sku] && num(b.min) > 0 && num(b.qty) <= num(b.min)) bins.push(b); }); });
+      bins.forEach(function (b) {
+        var src = totes.filter(function (t) { return t.sku === b.sku; }).sort(function (a, c) { return num(a.qty) - num(c.qty); })[0];   // emptiest box first
+        if (src) rows.push({ l: src, bin: b });
+      });
+      rows.sort(function (a, c) { return num(a.bin.qty) / num(a.bin.min) - num(c.bin.qty) / num(c.bin.min); });
+      box.innerHTML = '<div class="rsh">' + (rows.length ? '🔔 <b>' + rows.length + ' blue bin' + (rows.length === 1 ? '' : 's') + ' to refill</b> · tap one, or type a box code, part or rack above' : '✅ No blue bin needs a refill right now. Type a box code, part or rack above to find a white box.') + '</div>' + rsRows(rows.slice(0, 30));
+    } else box.innerHTML = '<div class="rsh">Type a box code, part or rack above, or scan the white box.</div>';
+    qsa('#rsList [data-rsl]').forEach(function (b) { b.onclick = function () { rsPick(b.dataset.rsl, b.dataset.sku, b.dataset.bin || ''); }; });
+    setTimeout(fillPhotos, 0);
+  }
+  function rsRows(rows) {
+    return '<div class="ordlist">' + rows.map(function (r) {
+      var l = r.l, p = P[l.sku];
+      return '<button type="button" class="ordrow rsrow" data-rsl="' + esc(l.loc) + '" data-sku="' + esc(l.sku) + '"' + (r.bin ? ' data-bin="' + esc(r.bin.loc) + '"' : '') + '>' +
+        '<span class="pc-ph' + (p.photo_id ? '" data-photo="' + esc(p.photo_id) + '"' : ' none"') + '></span>' +
+        '<span class="ot"><b>' + esc(p.name) + '</b><small class="mono">' + esc(codeOf(p)) + ' · ' + esc(MODEL_TAG[p.model] || p.model) + '</small>' +
+        '<small>⬜ <b class="mono">' + esc(l.loc) + '</b> · ' + num(l.qty) + ' pcs · ' + esc(rsPlaceTxt(l.loc)) + '</small>' +
+        (r.bin ? '<small class="rsbin">🟦 refill <b class="mono">' + esc(r.bin.loc) + '</b>: ' + num(r.bin.qty) + ' left (min ' + num(r.bin.min) + ')</small>' : '') + '</span>' +
+        '<span class="oq">' + (r.bin ? '⇪' : '›') + '</span></button>';
+    }).join('') + '</div>';
+  }
+  $('restockInput').addEventListener('input', function () { if (rs) { rs = null; renderRestock(); } else renderRsList(); });
   function renderRestock() {
     var loc = rs && lk(rs.loc, rs.sku), part = loc && P[loc.sku];
     $('restockCard').classList.toggle('hidden', !part); $('restockForm').classList.toggle('hidden', !part);
+    renderRsList();
     if (!part) return;
     $('restockCard').innerHTML = partCard(part, loc);
     var bins = (BY[part.sku] || []).filter(function (l) { return l.type === 'BIN'; });
@@ -1171,6 +1250,7 @@
     $('rsDest').innerHTML = bins.map(function (b) { return '<option value="' + esc(b.loc) + '">' + esc(b.loc) + ' (now ' + num(b.qty) + ')</option>'; }).join('') || '<option value="">No picking bin for this part</option>';
     $('rsQtyLbl').textContent = rsMode === 'open' ? 'Quantity to move into the bin' : 'Counted quantity sealed in the tote';
     $('rsGo').textContent = rsMode === 'open' ? 'Break seal and move to bin' : 'Seal tote';
+    if (!$('rsBack')) { var bk = document.createElement('button'); bk.type = 'button'; bk.id = 'rsBack'; bk.className = 'big'; bk.textContent = '← Back to the list'; $('restockForm').appendChild(bk); bk.onclick = function () { rs = null; renderRestock(); }; }
   }
   $('rsGo').onclick = function () {
     var loc = rs && lk(rs.loc, rs.sku); if (!loc) return;
