@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.22 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.23 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1294,6 +1294,26 @@
     } else arms = '<line x1="' + (x - 7 * s - lp * .6) + '" y1="' + (y - 13 * s) + '" x2="' + x + '" y2="' + (y - 18 * s) + '"/><line x1="' + x + '" y1="' + (y - 18 * s) + '" x2="' + (x + 7 * s + lp * .6) + '" y2="' + (y - 13 * s) + '"/>';
     return '<g class="man" stroke="' + col + '" stroke-width="' + 2.2 * s + '" stroke-linecap="round" fill="none">' + body + legs + arms + head + '</g>';
   }
+  /** The entrance: a green door square, an arrow pointing into the room and a big "ENTRANCE" sign next to it. */
+  function doorSvg(m) {
+    var d = m.door, x = d.x * CELL, y = d.y * CELL, c = CELL / 2;
+    // which way is "into the room": away from the nearest wall
+    var side = d.x === 0 ? 'L' : d.x === m.w - 1 ? 'R' : d.y === 0 ? 'T' : d.y === m.h - 1 ? 'B' : 'L';
+    var dx = { L: 1, R: -1, T: 0, B: 0 }[side], dy = { L: 0, R: 0, T: 1, B: -1 }[side];
+    var ax = x + c + dx * CELL * 1.6, ay = y + c + dy * CELL * 1.6;   // arrow tip, inside the room
+    var lw = 92, lh = 22, lx = x + c + dx * CELL * 2.2 - (dx < 0 ? lw : dx > 0 ? 0 : lw / 2), ly = y + c + dy * CELL * 2.2 - (dy < 0 ? lh : dy > 0 ? 0 : lh / 2);
+    if (!dx) lx = Math.max(2, Math.min(m.w * CELL - lw - 2, lx)); else ly = Math.max(2, Math.min(m.h * CELL - lh - 2, ly - (dy ? 0 : 0)));
+    return '<g class="door"><rect x="' + x + '" y="' + y + '" width="' + CELL + '" height="' + CELL + '" fill="#1f9d55" stroke="#0f6b37" stroke-width="2"/>' +
+      '<text x="' + (x + c) + '" y="' + (y + c + 5) + '" text-anchor="middle" font-size="13">🚪</text>' +
+      '<line x1="' + (x + c + dx * CELL * .6) + '" y1="' + (y + c + dy * CELL * .6) + '" x2="' + ax + '" y2="' + ay + '" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>' +
+      '<polygon points="' + arrowHead(ax, ay, dx, dy) + '" fill="#1f9d55"/>' +
+      '<rect x="' + lx + '" y="' + ly + '" width="' + lw + '" height="' + lh + '" rx="5" fill="#1f9d55"/>' +
+      '<text x="' + (lx + lw / 2) + '" y="' + (ly + 15) + '" text-anchor="middle" font-size="12" font-weight="900" fill="#fff" letter-spacing="1">ENTRANCE</text></g>';
+  }
+  function arrowHead(x, y, dx, dy) {
+    var s = 7, px = -dy, py = dx;   // perpendicular
+    return [[x + dx * s, y + dy * s], [x + px * s, y + py * s], [x - px * s, y - py * s]].map(function (q) { return q[0] + ',' + q[1]; }).join(' ');
+  }
   /** Top view SVG.  hi = rack id to light up, path = squares to walk, edit = editor highlights */
   function topSvg(m, o) {
     o = o || {}; var W = m.w * CELL, H = m.h * CELL, g = '';
@@ -1309,12 +1329,12 @@
         '<line x1="' + front[0] + '" y1="' + front[1] + '" x2="' + front[2] + '" y2="' + front[3] + '" stroke="#fff" stroke-width="3" opacity=".9"/>' +
         '<text x="' + (x0 + w / 2) + '" y="' + (y0 + h / 2 + 4) + '" text-anchor="middle" font-size="' + (hor ? 11 : 9) + '" font-weight="800" fill="#fff"' + (hor ? '' : ' transform="rotate(-90 ' + (x0 + w / 2) + ' ' + (y0 + h / 2) + ')"') + '>' + r.id + '</text></g>';
     }).join('');
-    var d = m.door, door = '<g><rect x="' + d.x * CELL + '" y="' + d.y * CELL + '" width="' + CELL + '" height="' + CELL + '" fill="#2fbf71"/><text x="' + (d.x * CELL + CELL / 2) + '" y="' + (d.y * CELL + 14) + '" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">IN</text></g>';
+    var door = doorSvg(m);
     var path = '';
     if (o.path && o.path.length > 1) path = '<polyline points="' + o.path.map(function (c) { return (c[0] * CELL + CELL / 2) + ',' + (c[1] * CELL + CELL / 2); }).join(' ') + '" fill="none" stroke="#ffb300" stroke-width="4" stroke-dasharray="7 5" stroke-linecap="round" stroke-linejoin="round"/>' +
       '<circle cx="' + (o.path[o.path.length - 1][0] * CELL + CELL / 2) + '" cy="' + (o.path[o.path.length - 1][1] * CELL + CELL / 2) + '" r="6" fill="#ffb300"/>';
     return '<svg viewBox="-2 -2 ' + (W + 4) + ' ' + (H + 4) + '" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#f7f8fa"/><g stroke="#e3e6ea" stroke-width="1">' + g + '</g>' +
-      walls + racks + door + path + '<g id="manLayer"></g></svg>';
+      walls + racks + path + door + '<g id="manLayer"></g></svg>';
   }
   /** Front view of a rack: shelves (1 = bottom) and boxes (1 = left), the target box lit, the stickman pointing at it. */
   function rackSvg(r, pl, label) {
@@ -1391,7 +1411,7 @@
     $('mapRack').innerHTML = rackSvg(r, pl, l.loc);
     var others = withPlace.slice(1).map(function (x) { return x.loc + ' (' + placeText(placeOf(x.loc)) + ', ' + num(x.qty) + ' pcs)'; });
     $('mapSteps').innerHTML = '<div class="steps"><b>' + esc(p.name) + '</b> <span class="mono">' + esc(codeOf(p)) + '</span>' +
-      '<ol><li>From the entrance (green <b>IN</b>) follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + r.id + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
+      '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + r.id + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
       '<li>Stand in front of the rack and face it.</li>' +
       '<li>Count the shelves from the bottom: <b>' + ordinal(pl.shelf) + ' shelf</b>.</li>' +
       '<li>Count the boxes from your left: <b>' + ordinal(pl.slot) + ' box</b>, label <b class="mono">' + esc(l.loc) + '</b>.</li>' +
@@ -1459,7 +1479,7 @@
         return '<button type="button" data-tool="' + t[0] + '" class="' + (e.tool === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') +
       '<span class="grp">Room <button type="button" data-sz="w-">−</button><b>' + m.w + '×' + m.h + '</b><button type="button" data-sz="w+">+</button> wide · <button type="button" data-sz="h-">−</button><button type="button" data-sz="h+">+</button> deep</span></div>' +
       '<p class="hint">' + ({ rack: r ? 'Tap an empty square to move ' + r.id + ' there. Tap another rack to select it.' : 'Tap an empty square to add rack ' + (free[0] || '(all placed)') + '. Tap a rack to change it.',
-        door: 'Tap the square where people come in.', wall: 'Tap squares to mark walls, machines or other places you cannot walk through. Tap again to clear.' }[e.tool]) +
+        door: 'Tap the square where people come in (usually on the edge of the room). It shows as a green 🚪 ENTRANCE sign.', wall: 'Tap squares to mark walls, machines or other places you cannot walk through. Tap again to clear.' }[e.tool]) +
       ' The white edge of a rack is its front (where you stand).</p>' +
       (r ? '<div class="rkpanel"><b>' + r.id + '</b>' +
         '<select data-rf="model">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((r.model || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' +
