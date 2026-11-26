@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.28 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.29 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1437,7 +1437,9 @@
       under.map(draw).join('') + over.map(draw).join('') +
       m.racks.filter(function (r) { return !hid['r' + r.id]; }).map(function (r) { return itemSvg(r, 'rack', { key: 'r' + r.id, hi: o.hi, sel: o.sel, edit: o.edit }); }).join('') +
       labels.map(draw).join('') + '<rect x="-4" y="-4" width="' + (W + 8) + '" height="' + (H + 8) + '" fill="none" stroke="#3b4048" stroke-width="8" rx="2"/>' +
-      path + itemSvg(m.door, 'door', { key: 'door', sel: o.sel, edit: o.edit }) + sign + '<g id="manLayer"></g>';
+      path + itemSvg(m.door, 'door', { key: 'door', sel: o.sel, edit: o.edit }) + sign +
+      (o.guides || []).map(function (gl) { return '<line x1="' + gl[0] * S + '" y1="' + gl[1] * S + '" x2="' + gl[2] * S + '" y2="' + gl[3] * S + '" stroke="#ff2d8f" stroke-width="1.6" stroke-dasharray="5 3"/>'; }).join('') +
+      '<g id="manLayer"></g>';
   }
   function topSvg(m, o) {
     return '<svg viewBox="-60 -60 ' + (m.W * MS + 120) + ' ' + (m.H * MS + 120) + '" xmlns="http://www.w3.org/2000/svg"><g id="mapContent">' + topInner(m, o) + '</g></svg>';
@@ -1615,7 +1617,7 @@
   /** Buttons floating on the map for the selected object, so nothing needs scrolling. */
   function floatBar() {
     var e = mapEd, it = edItem(e.sel), kind = edKind(e.sel);
-    if (!it) return '<div class="mapfloat hint">Tap or drag anything on the map. ' + (window.matchMedia('(pointer:fine)').matches ? 'Shift + wheel turns it. ' : '') + 'Things snap to the floor squares.</div>';
+    if (!it) return '<div class="mapfloat hint">Tap or drag anything on the map. ' + (window.matchMedia('(pointer:fine)').matches ? 'Shift + wheel turns it. Hold Alt while dragging to place it without the magnet. ' : '') + 'Things snap to the floor squares and line up with their neighbours (pink lines).</div>';
     var name = kind === 'rack' ? 'Rack ' + it.id + (it.name ? ' · ' + esc(it.name) : '') : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name;
     return '<div class="mapfloat"><b>' + name + '</b><span class="ang">' + Math.round(it.a || 0) + '°</span>' +
       '<button type="button" data-fl="rot-15" title="Turn left 15°">↺ 15°</button><button type="button" data-fl="rot15" title="Turn right 15°">↻ 15°</button>' +
@@ -1672,6 +1674,32 @@
     o.y = Math.min(Math.max(o.y, Math.min(hb[1], m.H / 2)), Math.max(m.H - hb[1], m.H / 2));
     o.x = Math.round(o.x * 1000) / 1000; o.y = Math.round(o.y * 1000) / 1000;
   }
+  /* Smart guides (like Photoshop): while dragging, an object's left / centre / right and top / middle / bottom
+   * magnet to the same lines of nearby objects (within 20 cm), and pink lines show what it lines up with. */
+  function boxOf(o) { var h = halfBox(o); return { l: o.x - h[0], c: o.x, r: o.x + h[0], t: o.y - h[1], m: o.y, b: o.y + h[1] }; }
+  function alignTo(o, key, e) {
+    var others = [], m = e.m, T = .2, hid = e.hidden || {};
+    m.racks.forEach(function (r) { if ('r' + r.id !== key && !hid['r' + r.id]) others.push(r); });
+    m.items.forEach(function (it, n) { if ('i' + n !== key && !hid['i' + n] && it.kind !== 'label') others.push(it); });
+    if (key !== 'door') others.push(m.door);
+    var me = boxOf(o), best = { x: null, y: null };
+    others.forEach(function (q) {
+      var b = boxOf(q);
+      ['l', 'c', 'r'].forEach(function (a) { ['l', 'c', 'r'].forEach(function (k) {
+        var d = b[k] - me[a]; if (Math.abs(d) < T && (!best.x || Math.abs(d) < Math.abs(best.x.d) - 1e-9)) best.x = { d: d, at: b[k], o: b };
+      }); });
+      ['t', 'm', 'b'].forEach(function (a) { ['t', 'm', 'b'].forEach(function (k) {
+        var d = b[k] - me[a]; if (Math.abs(d) < T && (!best.y || Math.abs(d) < Math.abs(best.y.d) - 1e-9)) best.y = { d: d, at: b[k], o: b };
+      }); });
+    });
+    var guides = [];
+    if (best.x) o.x += best.x.d;
+    if (best.y) o.y += best.y.d;
+    me = boxOf(o);
+    if (best.x) guides.push([best.x.at, Math.min(me.t, best.x.o.t) - .3, best.x.at, Math.max(me.b, best.x.o.b) + .3]);
+    if (best.y) guides.push([Math.min(me.l, best.y.o.l) - .3, best.y.at, Math.max(me.r, best.y.o.r) + .3, best.y.at]);
+    return guides;
+  }
   function settleAll(e) { var sn = e.snap !== false; e.m.racks.forEach(function (r) { settle(r, e.m, sn); }); e.m.items.forEach(function (it) { settle(it, e.m, sn); }); settle(e.m.door, e.m, sn); }
   /* Keyboard in the editor (laptop): Ctrl+C copy, Ctrl+V paste, Ctrl+D duplicate, Delete remove,
    * arrows move 5 cm (Shift: 50 cm), R / Shift+R turn 90°, Esc deselect. */
@@ -1685,7 +1713,7 @@
       c.id = free[0]; m.racks.push(c); mapEd.sel = 'r' + c.id;
     } else { m.items.push(c); mapEd.sel = 'i' + (m.items.length - 1); }
     mapClip = { kind: clip.kind, item: JSON.parse(JSON.stringify(c)) };   // next paste goes one step further
-    drawEditor();
+    settle(c, m, mapEd.snap !== false); drawEditor();
   }
   document.addEventListener('keydown', function (ev) {
     if (!mapEd || current !== 'map' || !$('modal').classList.contains('hidden')) return;
@@ -1700,16 +1728,16 @@
       mapEd.sel = null; drawEditor(); ev.preventDefault(); return;
     }
     var step = mapEd.snap !== false ? (ev.shiftKey ? 1 : FLOOR) : (ev.shiftKey ? .5 : .05), mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
-    if (mv) { it.x = r2(it.x + mv[0]); it.y = r2(it.y + mv[1]); drawEditor(); ev.preventDefault(); return; }
-    if (k === 'r' && !ctrl) { it.a = (((it.a || 0) + (ev.shiftKey ? -90 : 90)) % 360 + 360) % 360; drawEditor(); ev.preventDefault(); return; }
+    if (mv) { it.x = r2(it.x + mv[0]); it.y = r2(it.y + mv[1]); settle(it, mapEd.m, mapEd.snap !== false); drawEditor(); ev.preventDefault(); return; }
+    if (k === 'r' && !ctrl) { it.a = (((it.a || 0) + (ev.shiftKey ? -90 : 90)) % 360 + 360) % 360; settle(it, mapEd.m, mapEd.snap !== false); drawEditor(); ev.preventDefault(); return; }
     if (ev.key === 'Escape') { mapEd.sel = null; drawEditor(); }
   });
-  function edRedraw() { var g = document.querySelector('#mapTop #mapContent'); if (g) g.innerHTML = topInner(mapEd.m, { sel: mapEd.sel, edit: true, hidden: mapEd.hidden }); }
+  function edRedraw() { var g = document.querySelector('#mapTop #mapContent'); if (g) g.innerHTML = topInner(mapEd.m, { sel: mapEd.sel, edit: true, hidden: mapEd.hidden, guides: mapEd.guides }); }
   function drawEditor() {
     var e = mapEd, m = e.m;
     $('tab-map').classList.add('editing');
     e.hidden = e.hidden || {}; if (e.snap === undefined) e.snap = true;
-    settleAll(e);
+    if (!e.settled) { settleAll(e); e.settled = true; }   // tidy once when the editor opens; after that, every change settles itself
     $('mapTop').innerHTML = topSvg(m, { sel: e.sel, edit: true, hidden: e.hidden }) + floatBar();
     drawLayers();
     var svg = document.querySelector('#mapTop svg'); svg.style.touchAction = 'none';
@@ -1751,7 +1779,12 @@
       var o = edItem(dr.key), p0 = pt(ev), or = dr.orig;
       if (!dr.moved && Math.hypot(p0[0] - dr.start[0], p0[1] - dr.start[1]) < .02) return;   // a tap, not a drag yet
       dr.moved = true;
-      if (dr.mode === 'move') { o.x = or.x + p0[0] - dr.start[0]; o.y = or.y + p0[1] - dr.start[1]; settle(o, m, e.snap !== false); }
+      if (dr.mode === 'move') {
+        o.x = or.x + p0[0] - dr.start[0]; o.y = or.y + p0[1] - dr.start[1];
+        settle(o, m, e.snap !== false);
+        e.guides = ev.altKey ? [] : alignTo(o, dr.key, e);   // hold Alt to place without the magnet
+        settle(o, m, false);
+      }
       else if (dr.mode === 'rot') { var ang = Math.atan2(p0[1] - or.y, p0[0] - or.x) * 180 / Math.PI + 90, a90 = Math.round(ang / 90) * 90;
         if (e.snap !== false && Math.abs(ang - a90) < 4) ang = a90;
         o.a = ((Math.round(ang / 5) * 5) % 360 + 360) % 360; }
@@ -1760,7 +1793,7 @@
       if (dr.mode !== 'move') settle(o, m, false);   // keep inside the room while resizing / turning (snap on release)
       edRedraw();
     };
-    svg.onpointerup = svg.onpointercancel = function () { var dr = e.drag; if (dr) { e.drag = null; if (dr.moved || dr.changed) drawEditor(); } };
+    svg.onpointerup = svg.onpointercancel = function () { var dr = e.drag; e.guides = null; if (dr) { e.drag = null; if (dr.moved && dr.mode !== 'move') settle(edItem(dr.key), m, e.snap !== false); if (dr.moved || dr.changed) drawEditor(); } };
     // laptop: Shift + mouse wheel turns the selected object (5° a notch)
     svg.onwheel = function (ev) {
       var o = edItem(e.sel); if (!o || !ev.shiftKey) return;
@@ -1776,7 +1809,7 @@
       } else {
         var T = THINGS[k]; m.items.push({ kind: k, x: cx, y: cy, w: T.w, d: T.d, a: 0, text: k === 'label' ? 'Text' : '' }); e.sel = 'i' + (m.items.length - 1);
       }
-      drawEditor();
+      settle(edItem(e.sel), m, e.snap !== false); drawEditor();
     }; });
     qsa('#mapEdit [data-num]').forEach(function (inp) { inp.onchange = function () {
       var f = inp.dataset.num.trim(), v = Number(inp.value); if (!isFinite(v)) return;
@@ -1785,6 +1818,7 @@
       else if (it && f === 'Length') it.w = Math.max(.1, v);
       else if (it && f === 'Depth') it.d = Math.max(.1, v);
       else if (it && f === 'Angle') it.a = ((v % 360) + 360) % 360;
+      if (it) settle(it, m, e.snap !== false);
       drawEditor();
     }; });
     // the room "Depth" and the object "Depth " share a word: the room inputs are the first two
@@ -1804,9 +1838,9 @@
       else if (a === 'longer' || a === 'shorter') { var nw = Math.max(.25, r2(o.w + (a === 'longer' ? .5 : -.5), .25)); o.w = nw; }
       else if (a === 'snap') e.snap = e.snap === false;
       else if (a === 'done') e.sel = null;
-      if (a !== 'copy') drawEditor();
+      if (a !== 'copy') { settle(o, m, e.snap !== false); drawEditor(); }
     }; });
-    qsa('#mapEdit [data-rot]').forEach(function (b) { b.onclick = function () { it.a = (((it.a || 0) + Number(b.dataset.rot)) % 360 + 360) % 360; drawEditor(); }; });
+    qsa('#mapEdit [data-rot]').forEach(function (b) { b.onclick = function () { it.a = (((it.a || 0) + Number(b.dataset.rot)) % 360 + 360) % 360; settle(it, m, e.snap !== false); drawEditor(); }; });
     if (kind === 'rack') {
       var L = layersOf(it).map(function (x) { return { t: x.t, n: x.n }; });
       qsa('#mapEdit [data-ly]').forEach(function (b) { b[b.tagName === 'SELECT' ? 'onchange' : 'onclick'] = function () {
