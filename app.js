@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.29 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.30 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1383,7 +1383,7 @@
     }
   };
   function itemSvg(it, kind, o) {
-    var S = MS, w = it.w * S, d = it.d * S, sel = o.sel === o.key, body;
+    var S = MS, w = it.w * S, d = it.d * S, many = o.multi && o.multi.length > 1, sel = o.sel === o.key && !many, inGroup = many && o.multi.indexOf(o.key) >= 0, body;
     if (kind === 'rack') {
       var col = MAP_COLORS[rackModelOf(it)] || MAP_COLORS[''], lit = o.hi === it.id;
       body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="' + col + '" opacity="' + (o.hi && !lit ? .35 : 1) + '"' + (lit ? ' stroke="#ffd400" stroke-width="5"' : '') + '/>' +
@@ -1401,14 +1401,14 @@
       if (kind === 'label' && o.edit) body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="rgba(30,111,217,.06)" stroke="#9fc3f0" stroke-dasharray="4 3"/>' + body;
     }
     var hand = '';
-    if (sel) {   // edit handles: length (right), depth (back), rotate (round, above)
-      var hs = 9;
-      hand = '<rect x="' + (-w / 2 - 4) + '" y="' + (-d / 2 - 4) + '" width="' + (w + 8) + '" height="' + (d + 8) + '" fill="none" stroke="#14181f" stroke-width="2" stroke-dasharray="6 4"/>' +
-        '<line x1="0" y1="' + (-d / 2) + '" x2="0" y2="' + (-d / 2 - 30) + '" stroke="#1e6fd9" stroke-width="2"/>' +
-        '<circle data-h="rot" cx="0" cy="' + (-d / 2 - 30) + '" r="' + hs + '" fill="#1e6fd9" stroke="#fff" stroke-width="2"/>' +
-        (kind === 'door' ? '' : '<rect data-h="len" x="' + (w / 2 - hs) + '" y="' + (-hs) + '" width="' + 2 * hs + '" height="' + 2 * hs + '" rx="3" fill="#fff" stroke="#1e6fd9" stroke-width="3"/>' +
-        '<rect data-h="dep" x="' + (-hs) + '" y="' + (-d / 2 - hs) + '" width="' + 2 * hs + '" height="' + 2 * hs + '" rx="3" fill="#fff" stroke="#1e6fd9" stroke-width="3" transform="translate(' + (w / 4) + ',0)"/>');
-    }
+    if (sel) {   // edit handles, small and inside the object so the gap to the next one stays visible
+      var hs = 5;
+      hand = '<rect x="' + (-w / 2 - 1.5) + '" y="' + (-d / 2 - 1.5) + '" width="' + (w + 3) + '" height="' + (d + 3) + '" fill="none" stroke="#14181f" stroke-width="1.4" stroke-dasharray="4 3"/>' +
+        '<line x1="0" y1="' + (-d / 2) + '" x2="0" y2="' + (-d / 2 - 18) + '" stroke="#1e6fd9" stroke-width="1.5"/>' +
+        '<circle data-h="rot" cx="0" cy="' + (-d / 2 - 18) + '" r="6" fill="#1e6fd9" stroke="#fff" stroke-width="1.5"/>' +
+        (kind === 'door' ? '' : '<rect data-h="len" x="' + (w / 2 - 2 * hs - 1) + '" y="' + (-hs) + '" width="' + 2 * hs + '" height="' + 2 * hs + '" rx="2" fill="#fff" stroke="#1e6fd9" stroke-width="2"/>' +
+        '<rect data-h="dep" x="' + (w / 4 - hs) + '" y="' + (-d / 2 + 1) + '" width="' + 2 * hs + '" height="' + Math.min(2 * hs, Math.max(4, d - 2)) + '" rx="2" fill="#fff" stroke="#1e6fd9" stroke-width="2"/>');
+    } else if (inGroup) hand = '<rect x="' + (-w / 2 - 1.5) + '" y="' + (-d / 2 - 1.5) + '" width="' + (w + 3) + '" height="' + (d + 3) + '" fill="rgba(30,111,217,.10)" stroke="#1e6fd9" stroke-width="1.6" stroke-dasharray="4 3"/>';
     return '<g data-it="' + o.key + '" transform="translate(' + (it.x * S) + ',' + (it.y * S) + ') rotate(' + (it.a || 0) + ')" style="cursor:' + (o.edit ? 'move' : 'default') + '">' + body + hand + '</g>';
   }
   /** Top view SVG content.  o.hi = rack to light up, o.path = walk, o.sel = selected key (editing), o.edit */
@@ -1420,7 +1420,7 @@
     var flat = { area: 1, walkway: 1 }, under = items.filter(function (x) { return flat[x.it.kind]; }), over = items.filter(function (x) { return !flat[x.it.kind] && x.it.kind !== 'label'; }), labels = items.filter(function (x) { return x.it.kind === 'label'; });
     var hid = o.hidden || {}, items2 = function (arr) { return arr.filter(function (x) { return !hid['i' + x.n]; }); };
     under = items2(under); over = items2(over); labels = items2(labels);
-    var draw = function (x) { return itemSvg(x.it, x.it.kind, { key: 'i' + x.n, sel: o.sel, edit: o.edit }); };
+    var draw = function (x) { return itemSvg(x.it, x.it.kind, { key: 'i' + x.n, sel: o.sel, edit: o.edit, multi: o.multi }); };
     var path = '';
     if (o.path && o.path.length > 1) {
       var last = o.path[o.path.length - 1];
@@ -1435,9 +1435,10 @@
       '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="url(#floorTiles)"/>';
     return floor + (o.edit ? '<g stroke="#d9d5cc" stroke-width=".6" opacity=".7">' + g + '</g>' : '') +
       under.map(draw).join('') + over.map(draw).join('') +
-      m.racks.filter(function (r) { return !hid['r' + r.id]; }).map(function (r) { return itemSvg(r, 'rack', { key: 'r' + r.id, hi: o.hi, sel: o.sel, edit: o.edit }); }).join('') +
+      m.racks.filter(function (r) { return !hid['r' + r.id]; }).map(function (r) { return itemSvg(r, 'rack', { key: 'r' + r.id, hi: o.hi, sel: o.sel, edit: o.edit, multi: o.multi }); }).join('') +
       labels.map(draw).join('') + '<rect x="-4" y="-4" width="' + (W + 8) + '" height="' + (H + 8) + '" fill="none" stroke="#3b4048" stroke-width="8" rx="2"/>' +
-      path + itemSvg(m.door, 'door', { key: 'door', sel: o.sel, edit: o.edit }) + sign +
+      path + itemSvg(m.door, 'door', { key: 'door', sel: o.sel, edit: o.edit, multi: o.multi }) + sign + (o.edit && o.sel && !(o.multi && o.multi.length > 1) ? gapsSvg(m, o.sel, o.hidden || {}) : '') +
+      (o.box ? '<rect x="' + Math.min(o.box[0], o.box[2]) * S + '" y="' + Math.min(o.box[1], o.box[3]) * S + '" width="' + Math.abs(o.box[2] - o.box[0]) * S + '" height="' + Math.abs(o.box[3] - o.box[1]) * S + '" fill="rgba(30,111,217,.08)" stroke="#1e6fd9" stroke-width="1.2" stroke-dasharray="5 3"/>' : '') +
       (o.guides || []).map(function (gl) { return '<line x1="' + gl[0] * S + '" y1="' + gl[1] * S + '" x2="' + gl[2] * S + '" y2="' + gl[3] * S + '" stroke="#ff2d8f" stroke-width="1.6" stroke-dasharray="5 3"/>'; }).join('') +
       '<g id="manLayer"></g>';
   }
@@ -1588,7 +1589,7 @@
     var e = mapEd, m = e.m, rows = [], count = {};
     $('layersCard').style.display = '';
     var row = function (key, it, icon, name, sub, canLock) {
-      return '<div class="lyr' + (e.sel === key ? ' on' : '') + (e.hidden[key] ? ' off' : '') + '" data-lk="' + key + '">' +
+      return '<div class="lyr' + ((e.multi || []).indexOf(key) >= 0 ? ' on' : '') + (e.hidden[key] ? ' off' : '') + '" data-lk="' + key + '">' +
         '<button type="button" class="eye" data-eye="' + key + '" title="Show / hide while editing">' + (e.hidden[key] ? '◌' : '👁') + '</button>' +
         (canLock ? '<button type="button" class="lk" data-lock="' + key + '" title="Lock so it cannot be moved">' + (it.lock ? '🔒' : '🔓') + '</button>' : '<span class="lk"></span>') +
         '<span class="ic">' + icon + '</span><span class="nm"><b>' + name + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span></div>';
@@ -1610,16 +1611,30 @@
     });
     var sum = [racks.length + ' rack' + (racks.length === 1 ? '' : 's')].concat(Object.keys(count).map(function (k) { return count[k] + ' ' + THINGS[k].name.toLowerCase() + (count[k] > 1 && !/s$/.test(THINGS[k].name) ? 's' : ''); }));
     $('mapLayers').innerHTML = '<p class="lsum">' + esc(sum.join(' · ')) + '</p><div class="lyrs">' + rows.join('') + '</div>';
-    qsa('#mapLayers [data-lk]').forEach(function (r) { r.onclick = function () { e.sel = r.dataset.lk; drawEditor(); }; });
+    qsa('#mapLayers [data-lk]').forEach(function (r) { r.onclick = function (ev) {
+      var k = r.dataset.lk;
+      if (ev.shiftKey || ev.ctrlKey || ev.metaKey) { var cur = selList(); if (cur.indexOf(k) >= 0) cur.splice(cur.indexOf(k), 1); else cur.push(k); setSel(cur); }
+      else setSel([k]);
+      drawEditor();
+    }; });
     qsa('#mapLayers [data-eye]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); var k = b.dataset.eye; e.hidden[k] = !e.hidden[k]; if (e.hidden[k] && e.sel === k) e.sel = null; drawEditor(); }; });
     qsa('#mapLayers [data-lock]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); var o = edItem(b.dataset.lock); if (!o) return; if (o.lock) delete o.lock; else o.lock = true; drawEditor(); }; });
   }
   /** Buttons floating on the map for the selected object, so nothing needs scrolling. */
   function floatBar() {
-    var e = mapEd, it = edItem(e.sel), kind = edKind(e.sel);
-    if (!it) return '<div class="mapfloat hint">Tap or drag anything on the map. ' + (window.matchMedia('(pointer:fine)').matches ? 'Shift + wheel turns it. Hold Alt while dragging to place it without the magnet. ' : '') + 'Things snap to the floor squares and line up with their neighbours (pink lines).</div>';
+    var e = mapEd;
+    if (e.multi && e.multi.length > 1) {
+      return '<div class="mapfloat">' + '<button type="button" data-fu="-1" title="Undo (Ctrl+Z)"' + (mapEd.hi > 0 ? '' : ' disabled') + '>↶</button><button type="button" data-fu="1" title="Redo (Ctrl+Y)"' + (mapEd.hist && mapEd.hi < mapEd.hist.length - 1 ? '' : ' disabled') + '>↷</button>' + '<b>' + e.multi.length + ' selected</b>' +
+        '<button type="button" data-fm="copy" title="Copy them all (Ctrl+C, Ctrl+V)">⧉ Copy</button><button type="button" data-fm="del" title="Remove them all (Delete)">🗑</button>' +
+        '<span class="fsep">Line up</span><button type="button" data-fm="left" title="Line up left edges">⇤</button><button type="button" data-fm="centre" title="Line up centres (across)">↔</button><button type="button" data-fm="right" title="Line up right edges">⇥</button>' +
+        '<button type="button" data-fm="top" title="Line up top edges">⤒</button><button type="button" data-fm="middle" title="Line up middles (up and down)">↕</button><button type="button" data-fm="bottom" title="Line up bottom edges">⤓</button>' +
+        '<span class="fsep">Even gaps</span><button type="button" data-fm="evenx" title="Same gap between them, left to right">⟷</button><button type="button" data-fm="eveny" title="Same gap between them, top to bottom">⇅</button>' +
+        '<button type="button" data-fm="r90" title="Turn each 90°">↻ 90°</button><button type="button" data-fm="done" title="Done (Esc)">✓</button></div>';
+    }
+    var it = edItem(e.sel), kind = edKind(e.sel);
+    if (!it) return '<div class="mapfloat hint">' + '<button type="button" data-fu="-1" title="Undo (Ctrl+Z)"' + (mapEd.hi > 0 ? '' : ' disabled') + '>↶</button><button type="button" data-fu="1" title="Redo (Ctrl+Y)"' + (mapEd.hist && mapEd.hi < mapEd.hist.length - 1 ? '' : ' disabled') + '>↷</button>' + ' Tap or drag anything on the map. ' + (window.matchMedia('(pointer:fine)').matches ? 'Shift + wheel turns it. Hold Alt while dragging to place it without the magnet. ' : '') + 'Things snap to the floor squares and line up with their neighbours (pink lines). <button type="button" data-fu="help" title="Keyboard shortcuts (?)">⌨ Shortcuts</button></div>';
     var name = kind === 'rack' ? 'Rack ' + it.id + (it.name ? ' · ' + esc(it.name) : '') : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name;
-    return '<div class="mapfloat"><b>' + name + '</b><span class="ang">' + Math.round(it.a || 0) + '°</span>' +
+    return '<div class="mapfloat">' + '<button type="button" data-fu="-1" title="Undo (Ctrl+Z)"' + (mapEd.hi > 0 ? '' : ' disabled') + '>↶</button><button type="button" data-fu="1" title="Redo (Ctrl+Y)"' + (mapEd.hist && mapEd.hi < mapEd.hist.length - 1 ? '' : ' disabled') + '>↷</button>' + '<b>' + name + '</b><span class="ang">' + Math.round(it.a || 0) + '°</span>' +
       '<button type="button" data-fl="rot-15" title="Turn left 15°">↺ 15°</button><button type="button" data-fl="rot15" title="Turn right 15°">↻ 15°</button>' +
       '<button type="button" data-fl="rot-90" title="Turn left 90°">↺ 90°</button><button type="button" data-fl="rot90" title="Turn right 90°">↻ 90°</button>' +
       (kind !== 'door' ? '<button type="button" data-fl="shorter" title="Shorter">− len</button><button type="button" data-fl="longer" title="Longer">+ len</button>' +
@@ -1700,55 +1715,144 @@
     if (best.y) guides.push([Math.min(me.l, best.y.o.l) - .3, best.y.at, Math.max(me.r, best.y.o.r) + .3, best.y.at]);
     return guides;
   }
+  /** Pink measurements from the selected object to its nearest neighbour (or the wall) on each side. */
+  function gapsSvg(m, key, hid) {
+    var me = null, others = [];
+    var add = function (k, o) { if (hid[k]) return; if (k === key) me = boxOf(o); else others.push(boxOf(o)); };
+    m.racks.forEach(function (r) { add('r' + r.id, r); });
+    m.items.forEach(function (it, n) { if (it.kind !== 'label' && it.kind !== 'area' && it.kind !== 'walkway') add('i' + n, it); });
+    add('door', m.door);
+    if (!me) return '';
+    var S = MS, out = '', fmt = function (v) { return (Math.round(v * 100) / 100).toFixed(2) + ' m'; };
+    var line = function (x1, y1, x2, y2, v) {
+      if (v < .005) return;
+      var mx = (x1 + x2) / 2 * S, my = (y1 + y2) / 2 * S, txt = fmt(v), tw = txt.length * 5.6 + 6;
+      out += '<line x1="' + x1 * S + '" y1="' + y1 * S + '" x2="' + x2 * S + '" y2="' + y2 * S + '" stroke="#ff2d8f" stroke-width="1.2"/>' +
+        '<rect x="' + (mx - tw / 2) + '" y="' + (my - 7) + '" width="' + tw + '" height="14" rx="3" fill="#ff2d8f"/>' +
+        '<text x="' + mx + '" y="' + (my + 3.5) + '" text-anchor="middle" font-size="9.5" font-weight="800" fill="#fff">' + txt + '</text>';
+    };
+    var ovY = function (b) { return Math.min(me.b, b.b) - Math.max(me.t, b.t) > .01; }, ovX = function (b) { return Math.min(me.r, b.r) - Math.max(me.l, b.l) > .01; };
+    var pick = function (list, f) { return list.reduce(function (a, b) { return !a || f(b) < f(a) ? b : a; }, null); };
+    var L = pick(others.filter(function (b) { return ovY(b) && b.r <= me.l + .001; }), function (b) { return me.l - b.r; });
+    var R = pick(others.filter(function (b) { return ovY(b) && b.l >= me.r - .001; }), function (b) { return b.l - me.r; });
+    var U = pick(others.filter(function (b) { return ovX(b) && b.b <= me.t + .001; }), function (b) { return me.t - b.b; });
+    var D = pick(others.filter(function (b) { return ovX(b) && b.t >= me.b - .001; }), function (b) { return b.t - me.b; });
+    var cy = function (b) { return b ? (Math.max(me.t, b.t) + Math.min(me.b, b.b)) / 2 : me.m; }, cx = function (b) { return b ? (Math.max(me.l, b.l) + Math.min(me.r, b.r)) / 2 : me.c; };
+    line(L ? L.r : 0, cy(L), me.l, cy(L), me.l - (L ? L.r : 0));
+    line(me.r, cy(R), R ? R.l : m.W, cy(R), (R ? R.l : m.W) - me.r);
+    line(cx(U), U ? U.b : 0, cx(U), me.t, me.t - (U ? U.b : 0));
+    line(cx(D), me.b, cx(D), D ? D.t : m.H, (D ? D.t : m.H) - me.b);
+    return out;
+  }
   function settleAll(e) { var sn = e.snap !== false; e.m.racks.forEach(function (r) { settle(r, e.m, sn); }); e.m.items.forEach(function (it) { settle(it, e.m, sn); }); settle(e.m.door, e.m, sn); }
   /* Keyboard in the editor (laptop): Ctrl+C copy, Ctrl+V paste, Ctrl+D duplicate, Delete remove,
    * arrows move 5 cm (Shift: 50 cm), R / Shift+R turn 90°, Esc deselect. */
-  var mapClip = null;   // {kind, item}
-  function edPaste(clip) {
-    var m = mapEd.m, c = JSON.parse(JSON.stringify(clip.item)), sh = toWorld({ x: 0, y: 0, a: c.a }, 0, -(c.d + .6));
-    c.x = Math.max(0, Math.min(m.W, c.x + sh[0])); c.y = Math.max(0, Math.min(m.H, c.y + sh[1]));
-    if (clip.kind === 'rack') {
-      var free = RACKS.map(function (x) { return x.loc; }).filter(function (id) { return !rackOn(m, id); });
-      if (!free.length) { toast('All 40 rack numbers are on the map', 'bad'); return; }
-      c.id = free[0]; m.racks.push(c); mapEd.sel = 'r' + c.id;
-    } else { m.items.push(c); mapEd.sel = 'i' + (m.items.length - 1); }
-    mapClip = { kind: clip.kind, item: JSON.parse(JSON.stringify(c)) };   // next paste goes one step further
-    settle(c, m, mapEd.snap !== false); drawEditor();
+  var mapClip = null;   // [{kind, item}]
+  /** Keys of everything selected (several with Shift+click / box select, or just the one). */
+  function selList(e) { e = e || mapEd; return e.multi && e.multi.length > 1 ? e.multi.slice() : (e.sel ? [e.sel] : []); }
+  function setSel(keys) { keys = keys.filter(function (k, i) { return k && keys.indexOf(k) === i; }); mapEd.multi = keys; mapEd.sel = keys.length ? keys[keys.length - 1] : null; }
+  function copyList(keys) { return keys.filter(function (k) { return k !== 'door' && edItem(k); }).map(function (k) { return { kind: edKind(k), item: JSON.parse(JSON.stringify(edItem(k))) }; }); }
+  /** Paste copies of several objects with the same layout, just below them (above if there is no room). */
+  function edPaste(list) {
+    if (!Array.isArray(list)) list = [list];
+    if (!list.length) return;
+    var m = mapEd.m, bx = list.map(function (c) { return boxOf(c.item); });
+    var top = Math.min.apply(null, bx.map(function (b) { return b.t; })), bot = Math.max.apply(null, bx.map(function (b) { return b.b; }));
+    var dy = (bot - top) + .5; if (bot + dy > m.H) dy = -dy; if (top + dy < 0) dy = .5;
+    var keys = [], free = RACKS.map(function (x) { return x.loc; }).filter(function (id) { return !rackOn(m, id); }), out = [];
+    list.forEach(function (cl) {
+      var c = JSON.parse(JSON.stringify(cl.item)); c.y += dy; delete c.lock;
+      if (cl.kind === 'rack') { if (!free.length) { toast('All 40 rack numbers are on the map', 'bad'); return; } c.id = free.shift(); m.racks.push(c); keys.push('r' + c.id); }
+      else { m.items.push(c); keys.push('i' + (m.items.length - 1)); }
+      settle(c, m, false); out.push({ kind: cl.kind, item: JSON.parse(JSON.stringify(c)) });
+    });
+    mapClip = out;   // pasting again goes one step further
+    setSel(keys); drawEditor();
+    if (keys.length > 1) toast('Pasted ' + keys.length + ' objects. They are selected: drag them into place.', 'good');
+  }
+  function confirmLeave() { return window.confirm ? true : true; }   // changes are only kept after Save map
+  /** Undo / redo: step back and forward through the remembered versions of the map (up to 100). */
+  function edHistory(step) {
+    var e = mapEd; if (!e || !e.hist) return;
+    var to = e.hi + step; if (to < 0 || to >= e.hist.length) { toast(step < 0 ? 'Nothing more to undo' : 'Nothing to redo', 'bad'); return; }
+    e.hi = to; e.m = JSON.parse(e.hist[to]);
+    setSel(selList(e).filter(function (k) { return edItem(k); }));
+    drawEditor();
+  }
+  function shortcutHelp() {
+    var rows = [['Ctrl+Z', 'Undo'], ['Ctrl+Y  /  Ctrl+Shift+Z', 'Redo'], ['Ctrl+S', 'Save the map'], ['Ctrl+A', 'Select everything'], ['Shift+click  /  Ctrl+click', 'Add to or remove from the selection'],
+      ['Drag on empty floor', 'Select everything inside the box'], ['Ctrl+C  /  Ctrl+V', 'Copy / paste (keeps the layout)'], ['Ctrl+D', 'Duplicate'], ['Delete  /  Backspace', 'Remove'],
+      ['Arrow keys', 'Move one floor square (Shift: 1 m)'], ['R  /  Shift+R', 'Turn 90° right / left'], ['Shift + mouse wheel', 'Turn 5° at a time'], ['Alt while dragging', 'Move without the magnet'], ['Esc', 'Deselect'], ['?', 'This list']];
+    modal('<h3 class="formtitle">⌨ Map editor shortcuts</h3><table class="keys">' + rows.map(function (r) { return '<tr><td><kbd>' + esc(r[0]) + '</kbd></td><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</table>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button></div>');
+  }
+  function removeKeys(keys) {
+    var m = mapEd.m, rk = {}, idx = [];
+    keys.forEach(function (k) { if (k === 'door') return; if (k[0] === 'r') rk[k.slice(1)] = 1; else idx.push(Number(k.slice(1))); });
+    m.racks = m.racks.filter(function (r) { return !rk[r.id]; });
+    idx.sort(function (a, b) { return b - a; }).forEach(function (i) { m.items.splice(i, 1); });
+    setSel([]);
+  }
+  /** Line up / space evenly the selected objects (by their outline seen from above). */
+  function arrange(kind) {
+    var m = mapEd.m, objs = selList().filter(function (k) { return k !== 'door'; }).map(function (k) { return edItem(k); }).filter(function (o) { return o && !o.lock; });
+    if (objs.length < 2) return;
+    var B = objs.map(boxOf), mn = function (f) { return Math.min.apply(null, B.map(f)); }, mx = function (f) { return Math.max.apply(null, B.map(f)); };
+    if (kind === 'left') { var v = mn(function (b) { return b.l; }); objs.forEach(function (o, i) { o.x += v - B[i].l; }); }
+    if (kind === 'right') { var v2 = mx(function (b) { return b.r; }); objs.forEach(function (o, i) { o.x += v2 - B[i].r; }); }
+    if (kind === 'centre') { var v3 = (mn(function (b) { return b.l; }) + mx(function (b) { return b.r; })) / 2; objs.forEach(function (o) { o.x = v3; }); }
+    if (kind === 'top') { var v4 = mn(function (b) { return b.t; }); objs.forEach(function (o, i) { o.y += v4 - B[i].t; }); }
+    if (kind === 'bottom') { var v5 = mx(function (b) { return b.b; }); objs.forEach(function (o, i) { o.y += v5 - B[i].b; }); }
+    if (kind === 'middle') { var v6 = (mn(function (b) { return b.t; }) + mx(function (b) { return b.b; })) / 2; objs.forEach(function (o) { o.y = v6; }); }
+    if (kind === 'evenx' || kind === 'eveny') {
+      var X = kind === 'evenx', ord = objs.map(function (o, i) { return { o: o, b: B[i] }; }).sort(function (a, b) { return X ? a.b.l - b.b.l : a.b.t - b.b.t; });
+      var size = function (q) { return X ? q.b.r - q.b.l : q.b.b - q.b.t; }, first = ord[0].b, last = ord[ord.length - 1].b;
+      var span = X ? last.r - first.l : last.b - first.t, total = ord.reduce(function (a, q) { return a + size(q); }, 0), gap = (span - total) / (ord.length - 1), pos = X ? first.l : first.t;
+      ord.forEach(function (q) { if (X) q.o.x += pos - q.b.l; else q.o.y += pos - q.b.t; pos += size(q) + gap; });
+    }
+    objs.forEach(function (o) { o.x = Math.round(o.x * 1000) / 1000; o.y = Math.round(o.y * 1000) / 1000; settle(o, m, false); });
+    drawEditor();
   }
   document.addEventListener('keydown', function (ev) {
     if (!mapEd || current !== 'map' || !$('modal').classList.contains('hidden')) return;
     var tg = ev.target.tagName; if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
-    var key = mapEd.sel, it = edItem(key), kind = edKind(key), ctrl = ev.ctrlKey || ev.metaKey, k = ev.key.toLowerCase();
-    if (ctrl && k === 'c' && it && kind !== 'door') { mapClip = { kind: kind, item: JSON.parse(JSON.stringify(it)) }; toast('Copied ' + (kind === 'rack' ? 'rack ' + it.id : (THINGS[kind] || {}).name) + '. Ctrl+V to paste.', 'good'); ev.preventDefault(); return; }
-    if (ctrl && k === 'v' && mapClip) { edPaste(mapClip); ev.preventDefault(); return; }
-    if (ctrl && k === 'd' && it && kind !== 'door') { edPaste({ kind: kind, item: it }); ev.preventDefault(); return; }
-    if (!it) return;
-    if ((ev.key === 'Delete' || ev.key === 'Backspace') && kind !== 'door') {
-      if (kind === 'rack') mapEd.m.racks = mapEd.m.racks.filter(function (x) { return x !== it; }); else mapEd.m.items.splice(Number(key.slice(1)), 1);
-      mapEd.sel = null; drawEditor(); ev.preventDefault(); return;
-    }
-    var step = mapEd.snap !== false ? (ev.shiftKey ? 1 : FLOOR) : (ev.shiftKey ? .5 : .05), mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
-    if (mv) { it.x = r2(it.x + mv[0]); it.y = r2(it.y + mv[1]); settle(it, mapEd.m, mapEd.snap !== false); drawEditor(); ev.preventDefault(); return; }
-    if (k === 'r' && !ctrl) { it.a = (((it.a || 0) + (ev.shiftKey ? -90 : 90)) % 360 + 360) % 360; settle(it, mapEd.m, mapEd.snap !== false); drawEditor(); ev.preventDefault(); return; }
-    if (ev.key === 'Escape') { mapEd.sel = null; drawEditor(); }
+    var keys = selList(), ctrl = ev.ctrlKey || ev.metaKey, k = ev.key.toLowerCase(), m = mapEd.m, sn = mapEd.snap !== false;
+    if (ctrl && k === 'z') { edHistory(ev.shiftKey ? 1 : -1); ev.preventDefault(); return; }
+    if (ctrl && k === 'y') { edHistory(1); ev.preventDefault(); return; }
+    if (ctrl && k === 's') { ev.preventDefault(); if ($('mapEdSave')) $('mapEdSave').click(); return; }
+    if (ev.key === '?') { shortcutHelp(); ev.preventDefault(); return; }
+    if (ctrl && k === 'a') { setSel(m.racks.map(function (r) { return 'r' + r.id; }).concat(m.items.map(function (x, n) { return 'i' + n; }))); drawEditor(); ev.preventDefault(); return; }
+    if (ctrl && k === 'c' && keys.length) { mapClip = copyList(keys); if (mapClip.length) toast('Copied ' + mapClip.length + ' object' + (mapClip.length > 1 ? 's' : '') + '. Ctrl+V to paste.', 'good'); ev.preventDefault(); return; }
+    if (ctrl && k === 'v' && mapClip && mapClip.length) { edPaste(mapClip); ev.preventDefault(); return; }
+    if (ctrl && k === 'd' && keys.length) { edPaste(copyList(keys)); ev.preventDefault(); return; }
+    if (!keys.length) return;
+    if (ev.key === 'Delete' || ev.key === 'Backspace') { removeKeys(keys); drawEditor(); ev.preventDefault(); return; }
+    var step = sn ? (ev.shiftKey ? 1 : FLOOR) : (ev.shiftKey ? .5 : .05), mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
+    if (mv) { keys.forEach(function (q) { var o = edItem(q); if (!o || o.lock) return; o.x = r2(o.x + mv[0]); o.y = r2(o.y + mv[1]); settle(o, m, keys.length === 1 && sn); }); drawEditor(); ev.preventDefault(); return; }
+    if (k === 'r' && !ctrl) { keys.forEach(function (q) { var o = edItem(q); if (!o || o.lock) return; o.a = (((o.a || 0) + (ev.shiftKey ? -90 : 90)) % 360 + 360) % 360; settle(o, m, sn); }); drawEditor(); ev.preventDefault(); return; }
+    if (ev.key === 'Escape') { setSel([]); drawEditor(); }
   });
-  function edRedraw() { var g = document.querySelector('#mapTop #mapContent'); if (g) g.innerHTML = topInner(mapEd.m, { sel: mapEd.sel, edit: true, hidden: mapEd.hidden, guides: mapEd.guides }); }
+  function edRedraw() { var g = document.querySelector('#mapTop #mapContent'); if (g) g.innerHTML = topInner(mapEd.m, { sel: mapEd.sel, multi: mapEd.multi, edit: true, hidden: mapEd.hidden, guides: mapEd.guides, box: mapEd.box }); }
   function drawEditor() {
     var e = mapEd, m = e.m;
     $('tab-map').classList.add('editing');
     e.hidden = e.hidden || {}; if (e.snap === undefined) e.snap = true;
     if (!e.settled) { settleAll(e); e.settled = true; }   // tidy once when the editor opens; after that, every change settles itself
-    $('mapTop').innerHTML = topSvg(m, { sel: e.sel, edit: true, hidden: e.hidden }) + floatBar();
+    var snapNow = JSON.stringify(m);
+    if (!e.hist) { e.hist = [snapNow]; e.hi = 0; }
+    else if (snapNow !== e.hist[e.hi]) { e.hist = e.hist.slice(0, e.hi + 1); e.hist.push(snapNow); if (e.hist.length > 101) e.hist.shift(); e.hi = e.hist.length - 1; }
+    if (!e.multi || e.multi.indexOf(e.sel) < 0) e.multi = e.sel ? [e.sel] : [];
+    $('mapTop').innerHTML = topSvg(m, { sel: e.sel, multi: e.multi, edit: true, hidden: e.hidden }) + floatBar();
     drawLayers();
     var svg = document.querySelector('#mapTop svg'); svg.style.touchAction = 'none';
     var free = RACKS.map(function (x) { return x.loc; }).filter(function (id) { return !rackOn(m, id); });
-    var key = e.sel, it = edItem(key), kind = edKind(key);
+    var many = e.multi.length > 1, key = many ? null : e.sel, it = edItem(key), kind = edKind(key);
     var num2 = function (f, v, step, unit) { return '<label class="grp">' + f + ' <input type="number" step="' + step + '" data-num="' + f + '" value="' + (Math.round(v * 100) / 100) + '" style="width:72px">' + unit + '</label>&nbsp; '; };
     $('mapEdit').style.display = '';
     $('mapEdit').innerHTML = '<div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button>' +
       Object.keys(THINGS).map(function (k) { return '<button type="button" data-add="' + k + '">' + THINGS[k].name + '</button>'; }).join('') + '</div>' +
       '<div class="tools"><span class="grp">Room ' + num2('Width', m.W, .5, 'm') + num2('Depth', m.H, .5, 'm') + '</span></div>' +
-      '<p class="hint">On a laptop: <b>Ctrl+C</b> copy, <b>Ctrl+V</b> paste, <b>Ctrl+D</b> duplicate, <b>Delete</b> remove, <b>arrow keys</b> move (Shift = bigger steps), <b>R</b> turn 90°, <b>Esc</b> deselect.</p>' +
+      '<p class="hint">On a laptop: <b>Ctrl+Z</b> undo, <b>Ctrl+Y</b> redo, <b>Ctrl+S</b> save, <b>Ctrl+A</b> select all, <b>Shift+click</b> select several, <b>Ctrl+C / Ctrl+V</b> copy and paste, <b>Delete</b> remove, <b>arrows</b> move, <b>R</b> turn 90°, <b>?</b> all shortcuts.</p>' +
       '<p class="hint">Drag things to move them. Tap one to select it: the <b>round</b> handle turns it, the <b>square</b> handles change length and depth. The white edge of a rack is its front, where people stand. The arrow of the entrance points into the room.</p>' +
       (it ? '<div class="rkpanel"><b>' + (kind === 'rack' ? 'Rack ' + it.id : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name) + '</b>' +
         (kind === 'rack' ? '<select data-f="id">' + [it.id].concat(free).map(function (id) { return '<option' + (id === it.id ? ' selected' : '') + '>' + id + '</option>'; }).join('') + '</select>' +
@@ -1759,16 +1863,32 @@
         num2('Angle', it.a || 0, 5, '°') + '<button type="button" data-rot="-90">↺ 90°</button><button type="button" data-rot="90">↻ 90°</button>' +
         (kind === 'rack' ? shelvesEditor(it) : '') +
         (kind !== 'door' ? '<button type="button" data-act="dup">⧉ Copy</button><button type="button" data-act="del">🗑 Remove</button>' : '') +
-        '<button type="button" data-act="done">✓ Done</button></div>' : '<p class="hint">Tap something on the map to change it.</p>') +
+        '<button type="button" data-act="done">✓ Done</button></div>' : '<p class="hint">' + (many ? e.multi.length + ' objects selected. Use the bar on the map to copy, remove, line up or space them evenly; drag one to move them all.' : 'Tap something on the map to change it. Shift+click or drag a box on the floor to select several; Ctrl+A selects everything.') + '</p>') +
       '<div class="btns"><button type="button" class="big" id="mapEdCancel">Cancel</button><button type="button" class="big ok" id="mapEdSave">Save map</button></div>';
 
     var pt = function (ev) { var q = svg.createSVGPoint(); q.x = ev.clientX; q.y = ev.clientY; var r = q.matrixTransform(svg.getScreenCTM().inverse()); return [r.x / MS, r.y / MS]; };
     var keepIn = function (o) { o.x = Math.max(0, Math.min(m.W, o.x)); o.y = Math.max(0, Math.min(m.H, o.y)); };
     svg.onpointerdown = function (ev) {
-      var h = ev.target.closest('[data-h]'), g = ev.target.closest('[data-it]');
-      if (!g) { if (e.sel) { e.sel = null; drawEditor(); } return; }
+      var h = ev.target.closest('[data-h]'), g = ev.target.closest('[data-it]'), add = ev.shiftKey || ev.ctrlKey || ev.metaKey;
+      if (!g) {   // empty floor: drag a box to select what is inside it
+        ev.preventDefault();
+        e.drag = { mode: 'box', start: pt(ev), moved: false, add: add };
+        try { svg.setPointerCapture(ev.pointerId); } catch (er) {}
+        return;
+      }
       var k = g.dataset.it, o = edItem(k); if (!o) return;
       ev.preventDefault();
+      if (add && !h) {   // Shift / Ctrl + click: add to or remove from the selection
+        var cur = selList(); if (cur.indexOf(k) >= 0) cur.splice(cur.indexOf(k), 1); else cur.push(k);
+        setSel(cur); drawEditor(); return;
+      }
+      if (e.multi.length > 1 && e.multi.indexOf(k) >= 0 && !h) {   // drag the whole selection
+        var origs = {}; e.multi.forEach(function (q) { var oo = edItem(q); if (oo) origs[q] = JSON.parse(JSON.stringify(oo)); });
+        e.drag = { mode: 'group', key: k, start: pt(ev), orig: origs[k], origs: origs, moved: false };
+        try { svg.setPointerCapture(ev.pointerId); } catch (er) {}
+        return;
+      }
+      if (k !== e.sel) e.multi = [k];
       var changed = k !== e.sel; if (changed && !h) { e.sel = k; edRedraw(); }
       if (o.lock) { e.drag = null; if (changed) drawEditor(); else toast('Locked. Unlock it in Layers to move it.', 'bad'); return; }
       e.drag = { mode: h ? h.dataset.h : 'move', key: k, start: pt(ev), orig: JSON.parse(JSON.stringify(o)), moved: false, changed: changed };
@@ -1776,9 +1896,20 @@
     };
     svg.onpointermove = function (ev) {
       var dr = e.drag; if (!dr) return;
-      var o = edItem(dr.key), p0 = pt(ev), or = dr.orig;
+      var p0 = pt(ev);
       if (!dr.moved && Math.hypot(p0[0] - dr.start[0], p0[1] - dr.start[1]) < .02) return;   // a tap, not a drag yet
       dr.moved = true;
+      if (dr.mode === 'box') { e.box = [dr.start[0], dr.start[1], p0[0], p0[1]]; edRedraw(); return; }
+      if (dr.mode === 'group') {   // the grabbed one snaps and lines up; the others keep their place next to it
+        var lead = edItem(dr.key), lo = dr.orig;
+        lead.x = lo.x + p0[0] - dr.start[0]; lead.y = lo.y + p0[1] - dr.start[1];
+        settle(lead, m, e.snap !== false);
+        e.guides = ev.altKey ? [] : alignTo(lead, dr.key, e);
+        var ddx = lead.x - lo.x, ddy = lead.y - lo.y;
+        Object.keys(dr.origs).forEach(function (q) { var oo = edItem(q), og = dr.origs[q]; if (!oo || oo.lock) return; oo.x = og.x + ddx; oo.y = og.y + ddy; settle(oo, m, false); });
+        edRedraw(); return;
+      }
+      var o = edItem(dr.key), or = dr.orig;
       if (dr.mode === 'move') {
         o.x = or.x + p0[0] - dr.start[0]; o.y = or.y + p0[1] - dr.start[1];
         settle(o, m, e.snap !== false);
@@ -1793,7 +1924,20 @@
       if (dr.mode !== 'move') settle(o, m, false);   // keep inside the room while resizing / turning (snap on release)
       edRedraw();
     };
-    svg.onpointerup = svg.onpointercancel = function () { var dr = e.drag; e.guides = null; if (dr) { e.drag = null; if (dr.moved && dr.mode !== 'move') settle(edItem(dr.key), m, e.snap !== false); if (dr.moved || dr.changed) drawEditor(); } };
+    svg.onpointerup = svg.onpointercancel = function () {
+      var dr = e.drag; e.guides = null; if (!dr) return; e.drag = null;
+      if (dr.mode === 'box') {
+        var bx = e.box; e.box = null;
+        if (!dr.moved) { if (!dr.add) setSel([]); drawEditor(); return; }
+        var x1 = Math.min(bx[0], bx[2]), x2 = Math.max(bx[0], bx[2]), y1 = Math.min(bx[1], bx[3]), y2 = Math.max(bx[1], bx[3]), got = dr.add ? selList() : [];
+        var hit = function (k, o) { if (e.hidden[k]) return; var b = boxOf(o); if (b.r >= x1 && b.l <= x2 && b.b >= y1 && b.t <= y2 && got.indexOf(k) < 0) got.push(k); };
+        m.racks.forEach(function (r) { hit('r' + r.id, r); }); m.items.forEach(function (it2, n) { hit('i' + n, it2); });
+        setSel(got); drawEditor(); return;
+      }
+      if (dr.mode === 'group') { drawEditor(); return; }
+      if (dr.moved && dr.mode !== 'move') settle(edItem(dr.key), m, e.snap !== false);
+      if (dr.moved || dr.changed) drawEditor();
+    };
     // laptop: Shift + mouse wheel turns the selected object (5° a notch)
     svg.onwheel = function (ev) {
       var o = edItem(e.sel); if (!o || !ev.shiftKey) return;
@@ -1829,16 +1973,25 @@
       else { m.H = Math.max(3, Math.min(40, v)); m.h = Math.max(6, Math.round(m.H * 2)); }
       drawEditor();
     }; });
+    qsa('#mapTop [data-fu]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); if (b.dataset.fu === 'help') shortcutHelp(); else edHistory(Number(b.dataset.fu)); }; });
+    qsa('#mapTop [data-fm]').forEach(function (b) { b.onclick = function (ev) {
+      ev.stopPropagation(); var a = b.dataset.fm, keys = selList();
+      if (a === 'copy') { edPaste(copyList(keys)); return; }
+      if (a === 'del') { removeKeys(keys); drawEditor(); return; }
+      if (a === 'done') { setSel([]); drawEditor(); return; }
+      if (a === 'r90') { keys.forEach(function (q) { var o = edItem(q); if (o && !o.lock) { o.a = (((o.a || 0) + 90) % 360 + 360) % 360; settle(o, m, e.snap !== false); } }); drawEditor(); return; }
+      arrange(a);
+    }; });
     qsa('#mapTop [data-fl]').forEach(function (b) { b.onclick = function (ev) {
       ev.stopPropagation(); var a = b.dataset.fl, o = edItem(e.sel), k2 = edKind(e.sel);
       if (!o) return;
       if (a.indexOf('rot') === 0) o.a = (((o.a || 0) + Number(a.slice(3))) % 360 + 360) % 360;
-      else if (a === 'copy' && k2 !== 'door') edPaste({ kind: k2, item: o });
-      else if (a === 'del' && k2 !== 'door') { if (k2 === 'rack') m.racks = m.racks.filter(function (x) { return x !== o; }); else m.items.splice(Number(e.sel.slice(1)), 1); e.sel = null; }
+      else if (a === 'copy' && k2 !== 'door') { edPaste(copyList([e.sel])); return; }
+      else if (a === 'del' && k2 !== 'door') { removeKeys([e.sel]); }
       else if (a === 'longer' || a === 'shorter') { var nw = Math.max(.25, r2(o.w + (a === 'longer' ? .5 : -.5), .25)); o.w = nw; }
       else if (a === 'snap') e.snap = e.snap === false;
-      else if (a === 'done') e.sel = null;
-      if (a !== 'copy') { settle(o, m, e.snap !== false); drawEditor(); }
+      else if (a === 'done') setSel([]);
+      settle(o, m, e.snap !== false); drawEditor();
     }; });
     qsa('#mapEdit [data-rot]').forEach(function (b) { b.onclick = function () { it.a = (((it.a || 0) + Number(b.dataset.rot)) % 360 + 360) % 360; settle(it, m, e.snap !== false); drawEditor(); }; });
     if (kind === 'rack') {
@@ -1868,16 +2021,12 @@
     });
     qsa('#mapEdit [data-act]').forEach(function (b) { b.onclick = function () {
       var a = b.dataset.act;
-      if (a === 'done') e.sel = null;
-      else if (a === 'del') { if (kind === 'rack') m.racks = m.racks.filter(function (x) { return x !== it; }); else m.items.splice(Number(key.slice(1)), 1); e.sel = null; }
-      else if (a === 'dup') {
-        var c = JSON.parse(JSON.stringify(it)), sh = toWorld({ x: 0, y: 0, a: it.a }, 0, -(it.d + .6)); c.x = it.x + sh[0]; c.y = it.y + sh[1];
-        if (kind === 'rack') { if (!free.length) return toast('All 40 rack numbers are on the map', 'bad'); c.id = free[0]; m.racks.push(c); e.sel = 'r' + c.id; }
-        else { m.items.push(c); e.sel = 'i' + (m.items.length - 1); }
-      }
+      if (a === 'done') setSel([]);
+      else if (a === 'del') removeKeys([key]);
+      else if (a === 'dup') { edPaste(copyList([key])); return; }
       drawEditor();
     }; });
-    $('mapEdCancel').onclick = function () { mapEd = null; renderMap(); };
+    $('mapEdCancel').onclick = function () { if (mapEd.hi > 0 && !confirmLeave()) return; mapEd = null; renderMap(); };
     $('mapEdSave').onclick = function () {
       m.v = 2; m.w = Math.max(6, Math.round(m.W * 2)); m.h = Math.max(6, Math.round(m.H * 2));
       var bad = m.racks.filter(function (x) { return !walkPath(m, frontPoint(x, 1)); }).map(function (x) { return x.id; });

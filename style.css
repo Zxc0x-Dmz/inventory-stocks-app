@@ -551,3 +551,10 @@ body.sup .sup-hide { display: none !important; }
 #mapLayers .nm b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #mapLayers .nm small { font-size: 11px; color: var(--mute); }
 .mapfloat button.on { background: #1e6fd9; }
+.mapfloat .fsep { font-size: 11px; opacity: .7; margin: 0 2px 0 6px; }
+
+.mapfloat button[disabled] { opacity: .35; }
+.mapfloat.hint button { background: #e3e6ea; color: #14181f; min-height: 32px; padding: 4px 9px; }
+table.keys { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.keys td { padding: 5px 6px; border-bottom: 1px solid #f0f1f3; }
+table.keys kbd { font-family: Consolas, monospace; background: #f6f7f9; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; font-size: 12.5px; white-space: nowrap; }
