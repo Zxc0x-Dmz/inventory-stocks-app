@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.38 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.39 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -691,12 +691,15 @@
     return { locs: locs, total: total, low: locs.length > 0 && total <= reorderLevel_(P[sku]) };
   }
   function codeOf(p) { return p.ns_sku || (/Catalogue code (\S+)/.exec(p.notes || '') || [])[1] || p.sku; }
+  /** A part belongs to a model when it is that model's part, or a shared part that fits it (e.g. brake levers C1 + A200). */
+  function fitsModel(p, m) { return p.model === m || String(p.fits || '').split(/[\s,]+/).indexOf(m) >= 0; }
   function matchParts(text) {
     var q = String(text || '').trim().toLowerCase();
     if (!q) return snap.parts.slice();
     var words = q.split(/\s+/);
     return snap.parts.filter(function (p) {
       var hay = (p.sku + ' ' + p.name + ' ' + (p.ns_sku || '') + ' ' + (p.notes || '') + ' ' + (p.tier_code || '') + ' ' + MODEL_TAG[p.model] + ' ' +
+        String(p.fits || '').split(/[\s,]+/).map(function (f) { return MODEL_TAG[f] || f; }).join(' ') + ' ' +
         (BY[p.sku] || []).map(function (l) { return l.loc; }).join(' ')).toLowerCase();
       return words.every(function (w) { return hay.indexOf(w) >= 0; });
     });
@@ -846,7 +849,7 @@
     qsa('#modelCards [data-model]').forEach(function (b) { b.onclick = function () { gridModel = gridModel === b.dataset.model ? '' : b.dataset.model; gridLimit = 48; renderTake(); }; });
 
     var up = q.toUpperCase();
-    var list = matchParts(q).filter(function (p) { return (!gridModel || p.model === gridModel) && (!onlyStock || stockOf(p.sku).total > 0); });
+    var list = matchParts(q).filter(function (p) { return (!gridModel || fitsModel(p, gridModel)) && (!onlyStock || stockOf(p.sku).total > 0); });
     list.sort(function (a, b) {
       var ea = a.sku === up || a.ns_sku === q, eb = b.sku === up || b.ns_sku === q;
       return (eb - ea) || (stockOf(b.sku).total > 0) - (stockOf(a.sku).total > 0) || a.name.localeCompare(b.name);
@@ -1206,7 +1209,7 @@
     qsa('#modelChips .chip').forEach(function (c) { c.onclick = function () { stockModel = c.dataset.m; renderStock(); }; });
     var q = $('stockSearch').value.trim().toLowerCase(), low = $('lowOnly').checked, stocked = $('stockedOnly').checked;
     var rows = partRows().filter(function (r) {
-      if (stockModel && r.p.model !== stockModel) return false;
+      if (stockModel && !fitsModel(r.p, stockModel)) return false;
       if (low && !r.low) return false;
       if (stocked && !r.bins.length && !r.totes.length) return false;
       if (q) {
