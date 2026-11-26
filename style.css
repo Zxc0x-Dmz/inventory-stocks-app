@@ -550,3 +550,4 @@ body.sup .sup-hide { display: none !important; }
 #mapLayers .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
 #mapLayers .nm b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #mapLayers .nm small { font-size: 11px; color: var(--mute); }
+.mapfloat button.on { background: #1e6fd9; }

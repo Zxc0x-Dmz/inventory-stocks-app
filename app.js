@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.27 (2026-11-26)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.28 (2026-11-26)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1615,13 +1615,14 @@
   /** Buttons floating on the map for the selected object, so nothing needs scrolling. */
   function floatBar() {
     var e = mapEd, it = edItem(e.sel), kind = edKind(e.sel);
-    if (!it) return '<div class="mapfloat hint">Tap or drag anything on the map. ' + (window.matchMedia('(pointer:fine)').matches ? 'Shift + wheel turns it.' : '') + '</div>';
+    if (!it) return '<div class="mapfloat hint">Tap or drag anything on the map. ' + (window.matchMedia('(pointer:fine)').matches ? 'Shift + wheel turns it. ' : '') + 'Things snap to the floor squares.</div>';
     var name = kind === 'rack' ? 'Rack ' + it.id + (it.name ? ' · ' + esc(it.name) : '') : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name;
     return '<div class="mapfloat"><b>' + name + '</b><span class="ang">' + Math.round(it.a || 0) + '°</span>' +
       '<button type="button" data-fl="rot-15" title="Turn left 15°">↺ 15°</button><button type="button" data-fl="rot15" title="Turn right 15°">↻ 15°</button>' +
       '<button type="button" data-fl="rot-90" title="Turn left 90°">↺ 90°</button><button type="button" data-fl="rot90" title="Turn right 90°">↻ 90°</button>' +
       (kind !== 'door' ? '<button type="button" data-fl="shorter" title="Shorter">− len</button><button type="button" data-fl="longer" title="Longer">+ len</button>' +
         '<button type="button" data-fl="copy" title="Copy (Ctrl+C, Ctrl+V)">⧉ Copy</button><button type="button" data-fl="del" title="Remove (Delete)">🗑</button>' : '') +
+      '<button type="button" data-fl="snap" class="' + (e.snap !== false ? 'on' : '') + '" title="Snap to the floor squares">🧲 Snap ' + (e.snap !== false ? 'on' : 'off') + '</button>' +
       '<button type="button" data-fl="done" title="Done (Esc)">✓</button></div>';
   }
   /** Editor rows for a rack's shelves, top shelf first like the real rack. */
@@ -1650,6 +1651,28 @@
   }
   function edKind(key) { return key === 'door' ? 'door' : key && key[0] === 'r' ? 'rack' : key ? (edItem(key) || {}).kind : null; }
   function r2(v, st) { st = st || .05; return Math.round(v / st) * st; }
+  /* Snap to the floor squares (0.5 m) and stay inside the room.  Straight objects (0/90/180/270°) line up
+   * edge to edge with the tiles; turned ones keep their centre on the grid.  Sizes go in 0.25 m steps. */
+  var FLOOR = 0.5;
+  function halfBox(o) {   // half width / height of the object's outline as seen from above
+    var a = (o.a || 0) * Math.PI / 180, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a));
+    return [c * o.w / 2 + sn * o.d / 2, sn * o.w / 2 + c * o.d / 2];
+  }
+  function settle(o, m, snap) {
+    if (!o) return;
+    var right = Math.abs(((o.a || 0) % 90 + 90) % 90) < .01;
+    if (snap) {
+      o.a = right ? Math.round((o.a || 0) / 90) * 90 % 360 : o.a;
+      var h = halfBox(o);
+      if (right) { o.x = Math.round((o.x - h[0]) / FLOOR) * FLOOR + h[0]; o.y = Math.round((o.y - h[1]) / FLOOR) * FLOOR + h[1]; }
+      else { o.x = Math.round(o.x / (FLOOR / 2)) * (FLOOR / 2); o.y = Math.round(o.y / (FLOOR / 2)) * (FLOOR / 2); }
+    }
+    var hb = halfBox(o);   // never past the walls
+    o.x = Math.min(Math.max(o.x, Math.min(hb[0], m.W / 2)), Math.max(m.W - hb[0], m.W / 2));
+    o.y = Math.min(Math.max(o.y, Math.min(hb[1], m.H / 2)), Math.max(m.H - hb[1], m.H / 2));
+    o.x = Math.round(o.x * 1000) / 1000; o.y = Math.round(o.y * 1000) / 1000;
+  }
+  function settleAll(e) { var sn = e.snap !== false; e.m.racks.forEach(function (r) { settle(r, e.m, sn); }); e.m.items.forEach(function (it) { settle(it, e.m, sn); }); settle(e.m.door, e.m, sn); }
   /* Keyboard in the editor (laptop): Ctrl+C copy, Ctrl+V paste, Ctrl+D duplicate, Delete remove,
    * arrows move 5 cm (Shift: 50 cm), R / Shift+R turn 90°, Esc deselect. */
   var mapClip = null;   // {kind, item}
@@ -1676,7 +1699,7 @@
       if (kind === 'rack') mapEd.m.racks = mapEd.m.racks.filter(function (x) { return x !== it; }); else mapEd.m.items.splice(Number(key.slice(1)), 1);
       mapEd.sel = null; drawEditor(); ev.preventDefault(); return;
     }
-    var step = ev.shiftKey ? .5 : .05, mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
+    var step = mapEd.snap !== false ? (ev.shiftKey ? 1 : FLOOR) : (ev.shiftKey ? .5 : .05), mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
     if (mv) { it.x = r2(it.x + mv[0]); it.y = r2(it.y + mv[1]); drawEditor(); ev.preventDefault(); return; }
     if (k === 'r' && !ctrl) { it.a = (((it.a || 0) + (ev.shiftKey ? -90 : 90)) % 360 + 360) % 360; drawEditor(); ev.preventDefault(); return; }
     if (ev.key === 'Escape') { mapEd.sel = null; drawEditor(); }
@@ -1685,7 +1708,8 @@
   function drawEditor() {
     var e = mapEd, m = e.m;
     $('tab-map').classList.add('editing');
-    e.hidden = e.hidden || {};
+    e.hidden = e.hidden || {}; if (e.snap === undefined) e.snap = true;
+    settleAll(e);
     $('mapTop').innerHTML = topSvg(m, { sel: e.sel, edit: true, hidden: e.hidden }) + floatBar();
     drawLayers();
     var svg = document.querySelector('#mapTop svg'); svg.style.touchAction = 'none';
@@ -1727,10 +1751,13 @@
       var o = edItem(dr.key), p0 = pt(ev), or = dr.orig;
       if (!dr.moved && Math.hypot(p0[0] - dr.start[0], p0[1] - dr.start[1]) < .02) return;   // a tap, not a drag yet
       dr.moved = true;
-      if (dr.mode === 'move') { o.x = r2(or.x + p0[0] - dr.start[0]); o.y = r2(or.y + p0[1] - dr.start[1]); keepIn(o); }
-      else if (dr.mode === 'rot') { var ang = Math.atan2(p0[1] - or.y, p0[0] - or.x) * 180 / Math.PI + 90; o.a = ((Math.round(ang / 5) * 5) % 360 + 360) % 360; }
-      else if (dr.mode === 'len') { var lx = toLocal(or, p0[0], p0[1])[0], nw = Math.max(.2, r2(lx + or.w / 2)), sh = toWorld({ x: 0, y: 0, a: or.a }, (nw - or.w) / 2, 0); o.w = nw; o.x = or.x + sh[0]; o.y = or.y + sh[1]; }
-      else if (dr.mode === 'dep') { var ly = toLocal(or, p0[0], p0[1])[1], nd = Math.max(.1, r2(or.d / 2 - ly)), sh2 = toWorld({ x: 0, y: 0, a: or.a }, 0, -(nd - or.d) / 2); o.d = nd; o.x = or.x + sh2[0]; o.y = or.y + sh2[1]; }
+      if (dr.mode === 'move') { o.x = or.x + p0[0] - dr.start[0]; o.y = or.y + p0[1] - dr.start[1]; settle(o, m, e.snap !== false); }
+      else if (dr.mode === 'rot') { var ang = Math.atan2(p0[1] - or.y, p0[0] - or.x) * 180 / Math.PI + 90, a90 = Math.round(ang / 90) * 90;
+        if (e.snap !== false && Math.abs(ang - a90) < 4) ang = a90;
+        o.a = ((Math.round(ang / 5) * 5) % 360 + 360) % 360; }
+      else if (dr.mode === 'len') { var lx = toLocal(or, p0[0], p0[1])[0], nw = Math.max(.25, r2(lx + or.w / 2, e.snap !== false ? .25 : .05)), sh = toWorld({ x: 0, y: 0, a: or.a }, (nw - or.w) / 2, 0); o.w = nw; o.x = or.x + sh[0]; o.y = or.y + sh[1]; }
+      else if (dr.mode === 'dep') { var ly = toLocal(or, p0[0], p0[1])[1], nd = Math.max(.1, r2(or.d / 2 - ly, e.snap !== false ? .25 : .05)), sh2 = toWorld({ x: 0, y: 0, a: or.a }, 0, -(nd - or.d) / 2); o.d = nd; o.x = or.x + sh2[0]; o.y = or.y + sh2[1]; }
+      if (dr.mode !== 'move') settle(o, m, false);   // keep inside the room while resizing / turning (snap on release)
       edRedraw();
     };
     svg.onpointerup = svg.onpointercancel = function () { var dr = e.drag; if (dr) { e.drag = null; if (dr.moved || dr.changed) drawEditor(); } };
@@ -1774,7 +1801,8 @@
       if (a.indexOf('rot') === 0) o.a = (((o.a || 0) + Number(a.slice(3))) % 360 + 360) % 360;
       else if (a === 'copy' && k2 !== 'door') edPaste({ kind: k2, item: o });
       else if (a === 'del' && k2 !== 'door') { if (k2 === 'rack') m.racks = m.racks.filter(function (x) { return x !== o; }); else m.items.splice(Number(e.sel.slice(1)), 1); e.sel = null; }
-      else if (a === 'longer' || a === 'shorter') { var nw = Math.max(.2, r2(o.w + (a === 'longer' ? .5 : -.5))); o.w = nw; }
+      else if (a === 'longer' || a === 'shorter') { var nw = Math.max(.25, r2(o.w + (a === 'longer' ? .5 : -.5), .25)); o.w = nw; }
+      else if (a === 'snap') e.snap = e.snap === false;
       else if (a === 'done') e.sel = null;
       if (a !== 'copy') drawEditor();
     }; });
