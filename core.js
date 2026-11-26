@@ -7,10 +7,11 @@
  */
 var TABLES = {
   Parts:     ['sku', 'name', 'model', 'system', 'abc', 'ns_sku', 'tier_code', 'fits', 'unit', 'notes', 'price_eur', 'weight_g', 'photo_id', 'hs_code', 'reorder_at'],
-  Locations: ['loc', 'type', 'sku', 'qty', 'min', 'sealed_date', 'last_count', 'notes', 'label_printed'],
+  Locations: ['loc', 'type', 'sku', 'qty', 'min', 'sealed_date', 'last_count', 'notes', 'label_printed', 'place'],
   Movements: ['id', 'ts', 'type', 'sku', 'from_loc', 'to_loc', 'qty', 'mechanic', 'vehicle', 'note', 'device'],
   Counts:    ['id', 'ts', 'loc', 'sku', 'expected', 'counted', 'variance', 'counter', 'status', 'resolved_by', 'resolved_ts'],
-  Staff:     ['name', 'pin_hash', 'role', 'active']
+  Staff:     ['name', 'pin_hash', 'role', 'active'],
+  Settings:  ['key', 'value', 'updated', 'by']   // shared settings, e.g. the workshop map
 };
 
 /** Sign-in.  Each person has their own PIN.  The Staff tab stores SHA-256(name + ':' + PIN), never the PIN.
@@ -19,7 +20,7 @@ var ADMIN_NAME = 'Admin';
 var ROLES = { mechanic: 'Mechanic', supervisor: 'Supervisor' };
 /** Only supervisors may run these.  Mechanics can take, return, damaged, receive, restock, seal, count and add new parts
  *  (changing an existing part is checked in savePart). */
-var SUPERVISOR_OPS = { resolveCount: 1, saveLocation: 1, saveLocations: 1, addStaff: 1, setStaff: 1 };
+var SUPERVISOR_OPS = { resolveCount: 1, saveLocation: 1, saveLocations: 1, addStaff: 1, setStaff: 1, saveMap: 1 };
 /** These never need a sign-in (the sign-in screen needs the list of names). */
 var PUBLIC_OPS = { staffNames: 1 };
 
@@ -64,6 +65,7 @@ Core.prototype.snapshot = function () {
       return { name: String(r.name).trim(), role: r.role === 'supervisor' ? 'supervisor' : 'mechanic', active: isActive_(r), has_pin: !!r.pin_hash };
     }),
     counts: this.s.rows('Counts').filter(function (c) { return c.status === 'REVIEW'; }),
+    settings: this.settingsRows_().map(function (r) { return { key: r.key, value: r.value, updated: r.updated }; }),
     version: this.s.version()
   };
 };
@@ -326,6 +328,34 @@ Core.prototype.labelOutdated_ = function (id) {
   this.boxRows_(id).forEach(function (r) { if (r.label_printed) self.s.update('Locations', r, { label_printed: '' }); });
 };
 
+/** Settings rows; [] while the Settings tab does not exist yet (before setup() has run once). */
+Core.prototype.settingsRows_ = function () { try { return this.s.rows('Settings') || []; } catch (e) { return []; } };
+
+/** The workshop map (racks, entrance, walls) as JSON, shared by every phone.  p = {map: {...}}  Supervisors only. */
+Core.prototype.saveMap = function (p) {
+  var json = JSON.stringify(p.map || {});
+  if (json.length > 45000) fail_('The map is too big');
+  var m = p.map || {};
+  if (!(m.w >= 6 && m.w <= 80 && m.h >= 6 && m.h <= 80) || !Array.isArray(m.racks)) fail_('This is not a workshop map');
+  var row = this.settingsRows_().filter(function (r) { return r.key === 'map'; })[0], now = this.nowIso();
+  if (row) this.s.update('Settings', row, { value: json, updated: now, by: p.by || '' });
+  else this.s.append('Settings', { key: 'map', value: json, updated: now, by: p.by || '' });
+  this.s.bump();
+  return { ok: true, version: this.s.version() };
+};
+
+/** Where a box sits: "R01/3/2" = rack R01, shelf 3 from the bottom, 2nd box from the left.  p = {loc, place}  ('' clears it) */
+Core.prototype.setPlace = function (p) {
+  var place = String(p.place || '').trim().toUpperCase();
+  if (place && !/^R\d{2}\/\d{1,2}\/\d{1,2}$/.test(place)) fail_('Place must look like R01/3/2');
+  var rows = this.boxRows_(p.loc);
+  if (!rows.length) fail_('Box ' + p.loc + ' is not set up');
+  var self = this;
+  rows.forEach(function (r) { self.s.update('Locations', r, { place: place }); });
+  this.s.bump();
+  return { ok: true, version: this.s.version() };
+};
+
 /** Labels were printed for these boxes.  p = {locs: [box codes]} */
 Core.prototype.markPrinted = function (p) {
   var self = this, day = this.nowIso().slice(0, 10), n = 0;
@@ -443,6 +473,8 @@ Core.prototype.handle = function (op, p, who) {
     case 'savePart': return this.savePart(p, who);
     case 'setReorder': return this.setReorder(p);
     case 'markPrinted': return this.markPrinted(p);
+    case 'saveMap': return this.saveMap(p);
+    case 'setPlace': return this.setPlace(p);
     case 'history': return this.history(p);
     case 'addStaff': return this.addStaff(p);
     case 'setStaff': return this.setStaff(p, who);
