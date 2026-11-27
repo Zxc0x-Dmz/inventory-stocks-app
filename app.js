@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.54 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.55 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1478,6 +1478,15 @@
   function rackNoOf(id) { var m = typeof mapData === 'function' ? mapData() : null; return rackNo(m && rackOn(m, id)) || id; }
   function rackOn(m, id) { return m.racks.filter(function (r) { return r.id === id; })[0]; }
   function rackModelOf(r) { return (r && r.model) || rackModel[r && r.id] || ''; }
+  /** Colours to show for a rack on the map: its own model first, then every other model whose boxes sit on it. */
+  function rackMapModels(r) {
+    var own = mkParts(rackModelOf(r)), seen = {}; own.forEach(function (x) { seen[x] = 1; });
+    if (r && r.id) Object.keys(BOXES).forEach(function (k) {
+      var pl = placeOf(k); if (!pl || pl.rack !== r.id) return;
+      (BOXES[k] || []).forEach(function (l) { var m = P[l.sku] && P[l.sku].model; if (m && MAP_TAG[m]) seen[m] = seen[m] || 2; });
+    });
+    return own.concat(['NB3', 'OK4', 'NB2', 'UNI'].filter(function (x) { return seen[x] === 2; }));
+  }
   function toWorld(it, lx, ly) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [it.x + lx * c - ly * s, it.y + lx * s + ly * c]; }
   function toLocal(it, px, py) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = px - it.x, dy = py - it.y; return [dx * c + dy * s, -dx * s + dy * c]; }
   function covers(it, px, py, pad) { var l = toLocal(it, px, py); return Math.abs(l[0]) <= it.w / 2 + pad && Math.abs(l[1]) <= it.d / 2 + pad; }
@@ -1646,7 +1655,7 @@
   function itemSvg(it, kind, o) {
     var S = MS, w = it.w * S, d = it.d * S, many = o.multi && o.multi.length > 1, sel = o.sel === o.key && !many, inGroup = many && o.multi.indexOf(o.key) >= 0, body;
     if (kind === 'rack') {
-      var mkA = mkParts(rackModelOf(it)), col = mkCol(rackModelOf(it)), lit = o.hi === it.id, op = (o.hi && !lit ? .35 : 1);
+      var mkA = rackMapModels(it), col = MAP_COLORS[mkA[0]] || MAP_COLORS[''], lit = o.hi === it.id, op = (o.hi && !lit ? .35 : 1);
       body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="' + col + '" opacity="' + op + '"' + (lit ? ' stroke="#ffd400" stroke-width="5"' : '') + '/>' +
         (mkA.length > 1 ? mkA.slice(1).map(function (x, i) { var bw = w / mkA.length; return '<rect x="' + (-w / 2 + bw * (i + 1)) + '" y="' + (-d / 2) + '" width="' + bw + '" height="' + d + '" fill="' + MAP_COLORS[x] + '" opacity="' + op + '"/>'; }).join('') : '') +
         '<line x1="' + (-w / 2) + '" y1="' + (d / 2) + '" x2="' + (w / 2) + '" y2="' + (d / 2) + '" stroke="#fff" stroke-width="3" opacity=".95"/>' +
