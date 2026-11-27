@@ -1,5 +1,5 @@
 /* Keeps the app shell available offline.  Stock data always comes from the network. */
-var CACHE = 'stocks-v52';   // app shell.  Part photos live in 'stocks-photos-v1' (kept across updates)
+var CACHE = 'stocks-v53';   // app shell.  Part photos live in 'stocks-photos-v1' (kept across updates)
 var SHELL = ['./', 'index.html', 'style.css', 'core.js', 'app.js', 'demo-seed.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
 self.addEventListener('install', function (e) { e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); })); self.skipWaiting(); });
 self.addEventListener('activate', function (e) {

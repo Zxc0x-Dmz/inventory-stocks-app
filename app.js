@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.52 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.53 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2773,17 +2773,18 @@
     });
     $('labelList').innerHTML = pool.length ? pool.map(function (b) {
       if (b.empty) return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="lqrp" data-qr="' + esc(b.loc) + '"></span><span class="swatch sw-' + esc(b.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · <i>empty now</i></div><div class="t2">Label kept, reprint any time · qty 0</div></div>' +
-        '<button type="button" class="pvbtn" data-pv="' + esc(b.loc) + '">👁 Preview</button>' + (b.printed ? '<span class="pill done">Printed ' + esc(b.printed) + '</span>' : '<span class="pill err">Not printed yet</span>') + '</label>';
+        '<button type="button" class="pvbtn" data-pv="' + esc(b.loc) + '">👁 Preview</button><button type="button" class="pvbtn" data-wh="' + esc(b.loc) + '">📍 Where</button>' + (b.printed ? '<span class="pill done">Printed ' + esc(b.printed) + '</span>' : '<span class="pill err">Not printed yet</span>') + '</label>';
       var p = P[b.rows[0].sku], mixed = b.rows.length > 1;
       return '<label class="item"><input type="checkbox" style="width:auto" data-lb="' + esc(b.loc) + '"' + (lbSel[b.loc] ? ' checked' : '') + '><span class="lqrp" data-qr="' + esc(b.loc) + '" title="Tap to see the QR code big"></span><span class="swatch sw-' + esc(p.model) + '" style="height:22px"></span><div class="grow"><div class="t1"><span class="mono">' + esc(b.loc) + '</span> · ' +
         (mixed ? 'Mixed box · ' + b.rows.length + ' parts' : esc(p.name)) + '</div><div class="t2">' +
         (mixed ? esc(b.rows.map(function (l) { return P[l.sku].name + ' (' + num(l.qty) + ')'; }).join(', ')) : 'SKU ' + esc(codeOf(p)) + (b.type === 'TOTE' ? ' · qty ' + num(b.rows[0].qty) : '')) + '</div></div>' +
-        '<button type="button" class="pvbtn" data-pv="' + esc(b.loc) + '">👁 Preview</button>' +
+        '<button type="button" class="pvbtn" data-pv="' + esc(b.loc) + '">👁 Preview</button><button type="button" class="pvbtn" data-wh="' + esc(b.loc) + '">📍 Where</button>' +
         (b.rows.some(function (r) { return !r.label_printed; }) ? '<span class="pill err">Not printed yet</span>' : '<span class="pill done">Printed ' + esc(b.rows[0].label_printed) + ' · reprint</span>') + '</label>';
     }).join('') : '<p class="hint">' + ($('labelNew').checked ? 'All ' + (lbMode === 'BIN' ? 'blue bin' : 'white box') + ' labels are printed. Untick "Only labels not printed yet" to print one again.' : 'No ' + (lbMode === 'BIN' ? 'blue bins' : 'white boxes') + ' set up yet. They appear here after Add stock.') + '</p>';
     qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected labels (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
     $('labelPrint').textContent = 'Print selected labels (' + n + ')';
     fillQrs();
+    qsa('#labelList [data-wh]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); whereBox(b.dataset.wh); }; });
     qsa('#labelList [data-pv]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewOne(b.dataset.pv); }; });
   }
   /** Draws the QR code of every box in the Labels list (the code is the box code, e.g. C1-T001). Tap one to see it big. */
@@ -2928,6 +2929,28 @@
     withQr().then(function () { showPreview(labelPages(lbMode, chosen), 'Preview · ' + chosen.length + ' label' + (chosen.length > 1 ? 's' : ''), $('labelPrint').onclick); });
   };
   /** One box's sticker, big, from the QR window. */
+  /** Labels: where is this box?  The whole rack from the front, its spot highlighted in yellow. */
+  function whereBox(loc) {
+    loc = normLoc_(loc);
+    var pl = placeOf(loc), m = mapData(), r = pl && rackOn(m, pl.rack), rows = inBox(loc);
+    var what = rows.map(function (x) { return esc(P[x.sku].name) + ' <b>(' + num(x.qty) + ')</b>'; }).join(' · ') || '<i>empty now</i>';
+    if (!pl || !r) {
+      modal('<h3 class="formtitle">📍 Where is ' + esc(loc) + '?</h3><p class="hint">' + what + '</p><div class="warn">This box has no place on a rack yet.</div>' +
+        '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big ok" data-x="stay" id="whSet">📍 Set its place</button></div>');
+      $('whSet').onclick = function () { askPlace(loc, function () { whereBox(loc); }); };
+      return;
+    }
+    var mk = rackModelOf(r);
+    modal('<h3 class="formtitle">📍 ' + esc(loc) + '</h3><p class="hint" style="margin-top:-4px">' + what + '</p>' +
+      '<div class="whbig">RACK <b>' + esc(rackNo(r)) + '</b> · SHELF <b>' + pl.shelf + '</b> · BOX <b>' + pl.slot + '</b></div>' +
+      '<p class="hint">' + esc(placeText(pl)) + (mkTag(mk) ? ' · ' + esc(mkTag(mk)) : '') + (r.name ? ' · ' + esc(r.name) : '') + '</p>' +
+      '<div id="whRack" class="whrack">' + rackSvg(r, pl, loc, rackOcc(r.id, loc)) + '</div>' +
+      '<p class="hint">Yellow = this box. Grey = other boxes on the rack.</p>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button>' + (rows.length ? '<button type="button" class="big go" data-x="stay" id="whWay">🧭 Show me the way</button>' : '') + '</div>' +
+      '<p class="hint" style="text-align:center"><button type="button" class="pvbtn" id="whMove">📍 Change place</button></p>');
+    if ($('whWay')) $('whWay').onclick = function () { closeModal(); showWay(rows[0].sku, loc); };
+    $('whMove').onclick = function () { askPlace(loc, function () { whereBox(loc); }); };
+  }
   function previewOne(loc) {
     var b = labelBox(normLoc_(loc)); if (!b) return;
     var kind = b.type === 'TOTE' ? 'TOTE' : 'BIN';
