@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.50 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.51 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2824,7 +2824,8 @@
   function rackSign(r) {
     var mr = typeof mapData === 'function' ? rackOn(mapData(), r.loc) : null, m = rackModel[r.loc] || (mr && mr.model) || '', a = mkParts(m), tag = { NB3: 'C1', OK4: '400C', NB2: 'A200', UNI: 'Universal' }[m] || '';
     if (a.length > 1) {   // mixed rack: colour bands of each model, all models named
-      var bg = 'linear-gradient(90deg,' + a.map(function (x, i) { return MAP_COLORS[x] + ' ' + (i * 100 / a.length) + '% ' + ((i + 1) * 100 / a.length) + '%'; }).join(',') + ')';
+      var PC = { NB3: '#ff5000', OK4: '#003cc8', NB2: '#008c32', UNI: '#8a929e' };   // strong print colours
+      var bg = 'linear-gradient(90deg,' + a.map(function (x, i) { return PC[x] + ' ' + (i * 100 / a.length) + '% ' + ((i + 1) * 100 / a.length) + '%'; }).join(',') + ')';
       return '<div class="lab racksign rk-mix" style="background:' + bg + ';border-color:#14181f"><div class="rs-k">RACK</div><div class="rs-n">' + esc(rackNo(mr) || r.loc) + '</div>' +
         '<div class="rs-m"><b>MIXED</b><span>' + esc(a.map(function (x) { return MAP_TAG[x]; }).join(' + ')) + '</span></div></div>';
     }

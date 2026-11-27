@@ -278,9 +278,9 @@ body { background: linear-gradient(135deg, #eef6fb 0%, #f4f6f9 45%, #fbf0f3 100%
 .racksign .rs-m { display: flex; flex-direction: column; align-items: flex-end; text-align: right; min-width: 30mm; }
 .racksign .rs-m b { font-size: 30pt; font-weight: 900; line-height: 1; }
 .racksign .rs-m span { font-size: 8pt; font-weight: 600; margin-top: 1mm; }
-.racksign.rk-NB3 { background: #f57c00; border-color: #f57c00; color: #fff; }
-.racksign.rk-OK4 { background: #1565c0; border-color: #1565c0; color: #fff; }
-.racksign.rk-NB2 { background: #1f9d55; border-color: #1f9d55; color: #fff; }
+.racksign.rk-NB3 { background: #ff5000; border-color: #ff5000; color: #fff; }
+.racksign.rk-OK4 { background: #003cc8; border-color: #003cc8; color: #fff; }
+.racksign.rk-NB2 { background: #008c32; border-color: #008c32; color: #fff; }
 .racksign.rk-UNI { background: #e9ebef; border-color: #8a929e; color: #14181f; }
 .rksel { flex: none; width: auto; padding: 6px 8px; border-radius: 10px; margin-right: 6px; font-weight: 700; }
 #labelList .item.rk-NB3 { border-left: 6px solid #f57c00; } #labelList .item.rk-OK4 { border-left: 6px solid #1565c0; }
@@ -332,9 +332,9 @@ body.sup .sup-hide { display: none !important; }
 .lab .lsku { font-weight: 700; font-family: "Consolas", monospace; font-size: 9pt; word-break: break-all; }
 .lab .lname { font-size: 7.5pt; line-height: 1.15; max-height: 3.5em; overflow: hidden; }
 .lab .lloc { font-weight: 800; font-size: 13pt; letter-spacing: .3px; }
-.lab.c-OK4 { border-color: #1565c0; } .lab.c-OK4 .lh { background: #1565c0; color: #fff; }
-.lab.c-NB3 { border-color: #f57c00; } .lab.c-NB3 .lh { background: #f57c00; color: #fff; }
-.lab.c-NB2 { border-color: #1f9d55; } .lab.c-NB2 .lh { background: #1f9d55; color: #fff; }
+.lab.c-OK4 { border-color: #003cc8; } .lab.c-OK4 .lh { background: #003cc8; color: #fff; }
+.lab.c-NB3 { border-color: #ff5000; } .lab.c-NB3 .lh { background: #ff5000; color: #fff; }
+.lab.c-NB2 { border-color: #008c32; } .lab.c-NB2 .lh { background: #008c32; color: #fff; }
 .lab.c-UNI { border-color: #000; } .lab.c-UNI .lh { background: #fff; border-bottom: .6mm solid #000; }
 .tote { margin: 8mm; border-width: 2.5mm; border-radius: 4mm; }
 .tote .lh { font-size: 18pt; padding: 2mm 5mm; }
@@ -470,9 +470,9 @@ body.sup .sup-hide { display: none !important; }
 .pvone .lab.racksign { height: 100%; }
 .lab.plab .ps { display: flex; align-items: center; justify-content: space-between; gap: 2mm; }
 .lab.plab .pm { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; font-weight: 800; padding: .3mm 1.6mm; border-radius: 1mm; border: .3mm solid #000; white-space: nowrap; }
-.lab.plab .pm-OK4 { background: #1565c0; border-color: #1565c0; color: #fff; }
-.lab.plab .pm-NB3 { background: #f57c00; border-color: #f57c00; color: #fff; }
-.lab.plab .pm-NB2 { background: #1f9d55; border-color: #1f9d55; color: #fff; }
+.lab.plab .pm-OK4 { background: #003cc8; border-color: #003cc8; color: #fff; }
+.lab.plab .pm-NB3 { background: #ff5000; border-color: #ff5000; color: #fff; }
+.lab.plab .pm-NB2 { background: #008c32; border-color: #008c32; color: #fff; }
 /* White box labels: 4 per A4 landscape (148.5 x 105 mm each) */
 @page land { size: A4 landscape; margin: 0; }
 .page.land { page: land; }
@@ -640,3 +640,6 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 
 /* rack signs: 5 mm white gap with a dashed cut line in the middle */
 .page .lab.racksign { outline: 0.3mm dashed #9aa1ab; outline-offset: 2.5mm; }
+
+/* printed labels: full-strength toner colours (screens stay as they are) */
+.lab, .lab * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
