@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.46 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.47 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2741,10 +2741,14 @@
     if (lbMode === 'RACK') {
       $('labelList').innerHTML = pool.map(function (r) {
         var n = snap.locations.filter(function (l) { return normLoc_(l.loc).indexOf(r.loc + '-') === 0; }).length;
-        return '<label class="item rk-' + (rackModel[r.loc] || 'none') + '"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + esc(rackNoOf(r.loc)) + '</span>' + (rackNoOf(r.loc) !== r.loc ? ' · code ' + r.loc : ' · Rack ' + Number(r.loc.slice(1))) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><select class="rksel" data-rm="' + r.loc + '">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((rackModel[r.loc] || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
+        return '<label class="item rk-' + (rackModel[r.loc] || 'none') + '"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + esc(rackNoOf(r.loc)) + '</span>' + (rackNoOf(r.loc) !== r.loc ? ' · code ' + r.loc : ' · Rack ' + Number(r.loc.slice(1))) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><label class="rkcp" title="How many stickers of this rack">× <input type="number" min="1" max="20" inputmode="numeric" data-cp="' + r.loc + '" value="' + rackCopies(r.loc) + '"></label><select class="rksel" data-rm="' + r.loc + '">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((rackModel[r.loc] || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
       }).join('');
       qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected signs (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
       qsa('#labelList [data-pr]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewRack(b.dataset.pr); }; });
+      qsa('#labelList [data-cp]').forEach(function (inp) {
+        inp.onclick = function (e) { e.stopPropagation(); };
+        inp.oninput = function () { var v = Math.max(1, Math.min(20, Math.round(num(inp.value)) || 1)); lbCopies[inp.dataset.cp] = v; save('inv.rackCopies', lbCopies); };
+      });
       qsa('#labelList [data-rm]').forEach(function (sel) {
         sel.onclick = function (e) { e.stopPropagation(); };
         sel.onchange = function () { if (sel.value) rackModel[sel.dataset.rm] = sel.value; else delete rackModel[sel.dataset.rm]; save('inv.rackModel', rackModel); renderLabels(); };
@@ -2861,8 +2865,15 @@
   function withQr() { return loadScript(QR_LIB).catch(function () { toast('QR code library could not load. Labels show without QR codes.', 'bad'); }).then(function () {
     return new Promise(function (ok) { var t = 0, w = function () { if (window.qrcode || t++ > 20) ok(); else setTimeout(w, 150); }; w(); });
   }); }
+  /** Rack signs: how many stickers of each rack (one per shelf by default, so every layer gets one). */
+  var lbCopies = load('inv.rackCopies', {});
+  function rackCopies(loc) {
+    if (lbCopies[loc]) return lbCopies[loc];
+    var mr = typeof mapData === 'function' ? rackOn(mapData(), loc) : null;
+    return mr ? Math.max(1, layersOf(mr).length) : 1;
+  }
   function selectedForPrint() {
-    if (lbMode === 'RACK') return RACKS.filter(function (r) { return lbSel[r.loc]; });
+    if (lbMode === 'RACK') { var out = []; RACKS.filter(function (r) { return lbSel[r.loc]; }).forEach(function (r) { for (var i = 0; i < rackCopies(r.loc); i++) out.push(r); }); return out; }
     if (lbMode === 'PART') return snap.parts.filter(function (p) { return lbSel[p.sku]; }).map(function (p) { return { loc: p.sku, part: p }; });
     return labelPool().filter(function (b) { return lbSel[b.loc]; });
   }
