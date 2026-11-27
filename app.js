@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.56 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.57 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1478,25 +1478,23 @@
   function rackNoOf(id) { var m = typeof mapData === 'function' ? mapData() : null; return rackNo(m && rackOn(m, id)) || id; }
   function rackOn(m, id) { return m.racks.filter(function (r) { return r.id === id; })[0]; }
   function rackModelOf(r) { return (r && r.model) || rackModel[r && r.id] || ''; }
-  /** Colour bands for a rack on the map, sized by how much of the rack each model fills.
-   *  A few boxes of another model give only a thin touch of its colour; the rack's own model gets the rest. */
-  function rackMapBands(r) {
-    var own = mkParts(rackModelOf(r)), cnt = {}, cap = layersOf(r).reduce(function (a, x) { return a + Math.max(1, num(x.n)); }, 0) || 1;
+  /** Colour strips for a rack on the map: one strip per shelf, side by side like the shelves.
+   *  Inside a strip each model gets the share of that shelf's places its boxes fill; the rack's own model fills the rest. */
+  function rackMapShelves(r) {
+    var own = mkParts(rackModelOf(r)), L = layersOf(r), cnt = L.map(function () { return {}; }), ORD = ['NB3', 'OK4', 'NB2', 'UNI'];
     if (r && r.id) Object.keys(BOXES).forEach(function (k) {
-      var pl = placeOf(k); if (!pl || pl.rack !== r.id) return;
+      var pl = placeOf(k); if (!pl || pl.rack !== r.id || !cnt[pl.shelf - 1]) return;
       var l = (BOXES[k] || []).filter(function (x) { return P[x.sku] && MAP_TAG[P[x.sku].model]; })[0];
-      if (l) cnt[P[l.sku].model] = (cnt[P[l.sku].model] || 0) + 1;
+      if (l) { var c = cnt[pl.shelf - 1]; c[P[l.sku].model] = (c[P[l.sku].model] || 0) + 1; }
     });
-    var ORD = ['NB3', 'OK4', 'NB2', 'UNI'];
-    if (!own.length) {   // no model set: share by the boxes alone
-      var tot = 0, ms = ORD.filter(function (m) { tot += cnt[m] || 0; return cnt[m]; });
-      return ms.length ? ms.map(function (m) { return { m: m, f: cnt[m] / tot }; }) : [{ m: '', f: 1 }];
-    }
-    var other = ORD.filter(function (m) { return cnt[m] && own.indexOf(m) < 0; }), fr = {}, sum = 0;
-    other.forEach(function (m) { fr[m] = Math.max(.12, cnt[m] / cap); sum += fr[m]; });
-    if (sum > .7) other.forEach(function (m) { fr[m] = fr[m] * .7 / sum; });
-    sum = Math.min(sum, .7);
-    return own.map(function (m) { return { m: m, f: (1 - sum) / own.length }; }).concat(other.map(function (m) { return { m: m, f: fr[m] }; }));
+    return L.map(function (lay, i) {
+      var c = cnt[i], n = Math.max(1, num(lay.n)), tot = 0, ms = ORD.filter(function (m) { tot += c[m] || 0; return c[m]; });
+      if (!own.length) return ms.length ? ms.map(function (m) { return { m: m, f: c[m] / tot }; }) : [{ m: '', f: 1 }];
+      var other = ms.filter(function (m) { return own.indexOf(m) < 0; }), used = 0, out = [];
+      other.forEach(function (m) { var f = Math.min(1 - used, Math.max(.15, c[m] / n)); used += f; out.push({ m: m, f: f }); });
+      if (used < 1) out.unshift({ m: own[i % own.length], f: 1 - used });
+      return out;
+    });
   }
   function toWorld(it, lx, ly) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [it.x + lx * c - ly * s, it.y + lx * s + ly * c]; }
   function toLocal(it, px, py) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = px - it.x, dy = py - it.y; return [dx * c + dy * s, -dx * s + dy * c]; }
@@ -1666,8 +1664,12 @@
   function itemSvg(it, kind, o) {
     var S = MS, w = it.w * S, d = it.d * S, many = o.multi && o.multi.length > 1, sel = o.sel === o.key && !many, inGroup = many && o.multi.indexOf(o.key) >= 0, body;
     if (kind === 'rack') {
-      var bands = rackMapBands(it), lit = o.hi === it.id, op = (o.hi && !lit ? .35 : 1), bx = -w / 2;
-      body = bands.map(function (b) { var bw = w * b.f, rr = '<rect x="' + bx + '" y="' + (-d / 2) + '" width="' + (bw + .5) + '" height="' + d + '" fill="' + (MAP_COLORS[b.m] || MAP_COLORS['']) + '" opacity="' + op + '"/>'; bx += bw; return rr; }).join('') +
+      var shelves = rackMapShelves(it), lit = o.hi === it.id, op = (o.hi && !lit ? .35 : 1), sh = d / shelves.length;
+      body = shelves.map(function (bands, si) {
+        var bx = -w / 2, y0 = -d / 2 + sh * si;
+        return bands.map(function (b) { var bw = w * b.f, rr = '<rect x="' + bx + '" y="' + y0 + '" width="' + (bw + .5) + '" height="' + (sh + .5) + '" fill="' + (MAP_COLORS[b.m] || MAP_COLORS['']) + '" opacity="' + op + '"/>'; bx += bw; return rr; }).join('') +
+          (si ? '<line x1="' + (-w / 2) + '" y1="' + y0 + '" x2="' + (w / 2) + '" y2="' + y0 + '" stroke="#fff" stroke-width=".8" opacity=".55"/>' : '');
+      }).join('') +
         '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="none"' + (lit ? ' stroke="#ffd400" stroke-width="5"' : '') + '/>' +
         '<line x1="' + (-w / 2) + '" y1="' + (d / 2) + '" x2="' + (w / 2) + '" y2="' + (d / 2) + '" stroke="#fff" stroke-width="3" opacity=".95"/>' +
         '<text x="0" y="' + Math.min(5, d / 4) + '" text-anchor="middle" font-size="' + Math.max(9, Math.min(14, d * .55)) + '" font-weight="800" fill="#fff">' + esc(rackNo(it)) + (it.name ? '<tspan font-size="' + Math.max(8, Math.min(11, d * .4)) + '" font-weight="600"> · ' + esc(it.name) + '</tspan>' : '') + '</text>';
