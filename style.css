@@ -664,3 +664,21 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 .w3d-step { background: rgba(20, 24, 31, .78); color: #fff; border-radius: 14px; padding: 10px 14px; font-weight: 700; max-width: min(560px, 100%); }
 .w3d-step b { color: #ffe600; }
 .w3d-again { pointer-events: auto; border: 0; border-radius: 12px; background: #1e6fd9; color: #fff; font-weight: 800; padding: 10px 14px; min-height: 44px; cursor: pointer; }
+
+/* 3D: walk around yourself */
+.w3d-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; pointer-events: auto; }
+.w3d-roam, .w3d-point { border: 0; border-radius: 12px; background: #fff; color: #14181f; font-weight: 800; padding: 10px 14px; min-height: 44px; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.w3d-point kbd { font: 700 11px ui-monospace, Consolas, monospace; background: #eef1f5; border: 1px solid #c9d0d8; border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.w3d-point.on { background: #ffe600; }
+.w3d.roaming .w3d-roam { display: none; }
+@media (hover: none) { .w3d-point kbd { display: none; } }
+.w3d-cross { display: none; position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; }
+.w3d-cross::before, .w3d-cross::after { content: ''; position: absolute; background: rgba(20, 24, 31, .75); box-shadow: 0 0 0 1px rgba(255, 255, 255, .7); }
+.w3d-cross::before { left: 8px; top: 0; width: 2px; height: 18px; } .w3d-cross::after { top: 8px; left: 0; height: 2px; width: 18px; }
+.w3d.roaming .w3d-cross { display: block; }
+.w3d-info { position: absolute; left: 50%; top: calc(50% + 22px); transform: translateX(-50%); background: rgba(20, 24, 31, .86); color: #fff; border-radius: 12px; padding: 8px 12px; max-width: min(92vw, 520px); text-align: center; pointer-events: none; font-size: 14px; }
+.w3d-info b { display: block; color: #ffe600; }
+.w3d-joy { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .8); background: rgba(20, 24, 31, .25); pointer-events: none; }
+.w3d-joy i { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255, 255, 255, .85); }
+.w3d.roaming canvas { cursor: crosshair; touch-action: none; }
+.w3d.locked canvas { cursor: none; }

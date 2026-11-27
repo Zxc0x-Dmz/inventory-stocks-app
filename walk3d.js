@@ -3,6 +3,9 @@
  * from outside the entrance along the same route as the map (walkPath), stops in front of the rack, turns to it and
  * points at the box, which glows yellow.  The camera follows just behind him, like a game.
  *
+ * Or walk around yourself (first person): W A S D / arrows + mouse on a laptop, joystick + drag on a phone;
+ * looking at a box shows what is in it (opts.boxInfo).
+ *
  * Needs three.js (loaded by app.js only when this is opened).  Plain ES5 so it runs on older phones.
  *
  * Walk3D.open({
@@ -12,6 +15,8 @@
  *   rackLabel, rackColor,      what the rack's sign says and its model colour
  *   partName, things,          the part's name, and THINGS from app.js (names, sizes, colours of map objects)
  *   rackStyle(r)               -> {label, color} for every rack's sign
+ *   boxInfo(rackId, shelf, slot) -> text about the box at that place (code, part, pieces)
+ *   mode: 'roam'               open straight in walk-around mode (no rack/path needed)
  * })
  */
 (function () {
@@ -28,7 +33,17 @@
 
   /* map (x right, y down, angle a clockwise in degrees) -> three.js (x, z), rotation.y = -a */
   function world(it, lx, ly) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [it.x + lx * c - ly * s, it.y + lx * s + ly * c]; }
-  function frontNormal(it) { var a = (it.a || 0) * Math.PI / 180; return [-Math.sin(a), Math.cos(a)]; }   // the rack's front side
+  /** Unit vector from the entrance to the outside of the building (x, y on the map). */
+  function doorOut(m) {
+    var d = m.door || { x: 0, y: 0, a: 270 }, a = world(d, 0, -1), b = world(d, 0, 1);
+    var outA = a[0] < 0 || a[1] < 0 || a[0] > m.W || a[1] > m.H, outB = b[0] < 0 || b[1] < 0 || b[0] > m.W || b[1] > m.H;
+    var pick = outA && !outB ? a : outB && !outA ? b : null;
+    if (!pick) {   // both or neither outside: the side farther from the middle of the room
+      var da = Math.hypot(a[0] - m.W / 2, a[1] - m.H / 2), db = Math.hypot(b[0] - m.W / 2, b[1] - m.H / 2); pick = da >= db ? a : b;
+    }
+    return [pick[0] - d.x, pick[1] - d.y];
+  }
+  function frontNormal(it) { if (!it) return [0, 1]; var a = (it.a || 0) * Math.PI / 180; return [-Math.sin(a), Math.cos(a)]; }   // the rack's front side
 
   function label(text, bg, fg, w, h, size) {
     var c = document.createElement('canvas'); c.width = w || 256; c.height = h || 128; var g = c.getContext('2d');
@@ -77,7 +92,7 @@
         add(new T.BoxGeometry(dw, CEIL - DH, 0.18), frontM, cx, DH + (CEIL - DH) / 2, cy, ry2);
         [-1, 1].forEach(function (k) { add(new T.BoxGeometry(0.1, DH, 0.26), blue, cx + ux * k * dw / 2, DH / 2, cy + uy * k * dw / 2, ry2); });
         add(new T.BoxGeometry(dw + 0.2, 0.1, 0.26), blue, cx, DH, cy, ry2);
-        var outN = [-(world(d, 0, 1)[0] - d.x), -(world(d, 0, 1)[1] - d.y)];   // outside = away from the inside of the door
+        var outN = doorOut(m);   // the outside of the building
         var sign = add(new T.PlaneGeometry(1.6, 0.4), new T.MeshBasicMaterial({ map: label('ENTRANCE', '#1e6fd9', '#ffffff', 512, 128, 70) }), cx + outN[0] * 0.11, DH + 0.42, cy + outN[1] * 0.11);
         sign.rotation.y = Math.atan2(outN[0], outN[1]);
         add(new T.CylinderGeometry(0.18, 0.22, 0.07, 16), B(LAMP), cx + outN[0] * 0.4, DH + 0.85, cy + outN[1] * 0.4);
@@ -103,7 +118,7 @@
 
     // racks: uprights, shelves, blue bins / white boxes per shelf, a sign in the model colour
     var up = L(0x1858b8), board = L(0xe8eef6), binM = L(0x2f80ea), toteM = L(0xffffff);
-    var target = null;
+    var target = null, pick = [];
     (m.racks || []).forEach(function (r) {
       var g = new T.Group(); g.position.set(r.x, 0, r.y); g.rotation.y = -(r.a || 0) * Math.PI / 180; scene.add(g);
       var lay = r === o.rack ? o.layers : (r.layers && r.layers.length ? r.layers : (function () { var a = []; for (var i = 0; i < Math.max(1, r.shelves || 1); i++) a.push({ t: 'BIN', n: Math.max(1, r.slots || 1) }); return a; })());
@@ -119,6 +134,7 @@
           var bx = -w / 2 + bw * (i - 0.5), hit = r === o.rack && si + 1 === o.shelf && i === o.slot;
           var bgeo2 = new T.BoxGeometry(bw * 0.84, ly.t === 'TOTE' ? 0.34 : 0.3, dd * 0.82);
           var b = gadd(bgeo2, hit ? new T.MeshBasicMaterial({ color: 0xffe600 }) : ly.t === 'TOTE' ? toteM : binM, bx, y + 0.18, 0.02);
+          b.userData = { r: r, shelf: si + 1, slot: i, kind: ly.t }; pick.push(b);
           if (hit) b.add(new T.LineSegments(new T.EdgesGeometry(bgeo2), new T.LineBasicMaterial({ color: 0x111111 })));   // shows with the glow
           else outline(bgeo2, bx, y + 0.18, 0.02);
           if (hit) { target = { mesh: b, local: [bx, y + 0.18] }; b.visible = false; }
@@ -131,7 +147,7 @@
       [1, -1].forEach(function (side) { var s = gadd(new T.PlaneGeometry(Math.min(1.3, w * 0.8), Math.min(0.65, w * 0.4)), new T.MeshBasicMaterial({ map: tex }), 0, H + 0.4, side * (dd / 2 + 0.01)); if (side < 0) s.rotation.y = Math.PI; });
     });
 
-    return { scene: scene, target: target };
+    return { scene: scene, target: target, pick: pick };
   }
 
   /* the walker: a dark figure with hips, knees, shoulders and elbows */
@@ -171,10 +187,15 @@
   function open(o) {
     if (!window.THREE) throw new Error('3D library not loaded');
     T = window.THREE; close();
-    var box = el('<div class="w3d" role="dialog" aria-label="Walk there in 3D"><div class="w3d-top"><b>' + esc(o.rackLabel ? 'Rack ' + o.rackLabel + ' · shelf ' + o.shelf + ' · box ' + o.slot : 'Walk there') + '</b>' +
-      '<span class="mono">' + esc(o.code || '') + '</span><button type="button" class="w3d-x" aria-label="Close">✕</button></div>' +
-      '<div class="w3d-hud"><div class="w3d-step"></div><button type="button" class="w3d-again">↻ Walk again</button></div></div>');
+    var guided = !!(o.rack && o.path && o.path.length);
+    var box = el('<div class="w3d" role="dialog" aria-label="Walk in the workshop in 3D"><div class="w3d-top"><b>' + esc(guided ? 'Rack ' + o.rackLabel + ' · shelf ' + o.shelf + ' · box ' + o.slot : 'Workshop · walk around') + '</b>' +
+      (o.code ? '<span class="mono">' + esc(o.code) + '</span>' : '') + '<button type="button" class="w3d-x" aria-label="Close">✕</button></div>' +
+      '<div class="w3d-cross" aria-hidden="true"></div><div class="w3d-info" hidden></div><div class="w3d-joy" hidden><i></i></div>' +
+      '<div class="w3d-hud"><div class="w3d-step"></div><div class="w3d-btns">' +
+      (guided ? '<button type="button" class="w3d-again">↻ Walk again</button>' : '') +
+      '<button type="button" class="w3d-roam">🕹 Walk around yourself</button><button type="button" class="w3d-point" title="B">👉 Point <kbd>B</kbd></button></div></div></div>');
     document.body.appendChild(box);
+    try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}   // keys go to the 3D view, not the search box
     var renderer;
     try { renderer = new T.WebGLRenderer({ antialias: true }); } catch (e) { box.remove(); throw new Error('This phone cannot show 3D'); }
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); box.insertBefore(renderer.domElement, box.firstChild);
@@ -184,7 +205,8 @@
     var step = box.querySelector('.w3d-step'), say = function (h) { step.innerHTML = h; };
 
     // route: start a few steps outside the entrance, then the map's own route
-    var d = o.map.door, outside = world(d, 0, -1.8), pts = [outside].concat(o.path || []);
+    var d = o.map.door, ON = doorOut(o.map), outside = [d.x + ON[0] * 3.5, d.y + ON[1] * 3.5], atDoor = [d.x + ON[0] * 0.3, d.y + ON[1] * 0.3];
+    var pts = [outside, atDoor].concat(o.path || []);   // outside the building -> through the entrance -> the route on the map
     var P = pts.map(function (p) { return new T.Vector3(p[0], 0, p[1]); }), seg = [], len = 0;
     for (var i = 1; i < P.length; i++) { var dl = P[i].distanceTo(P[i - 1]); seg.push(dl); len += dl; }
     var at = function (dd) {
@@ -259,7 +281,9 @@
 
     var phase, t0, dist, yaw, swing = 0, last = 0, camPos = new T.Vector3(), camLook = new T.Vector3(), alive = true;
     function start() {
-      phase = 'door'; t0 = performance.now(); dist = 0; swing = 0; endCam = null; state.endFov = 0; fit();
+      phase = 'door'; t0 = performance.now(); dist = 0; swing = 0; endCam = null; state.endFov = 0; state.standAt = null; fit();
+      roam = null; pointing = false; fpLift = 0; fpArm.visible = false; var pb = box.querySelector('.w3d-point'); if (pb) pb.classList.remove('on');
+      box.classList.remove('roaming'); F.man.visible = true; F.shadow.visible = true; info.hidden = true; if (hl) hl.visible = false;
       var a0 = at(0); yaw = Math.atan2(a0.dir.x, a0.dir.z); F.man.position.copy(a0.pos);
       var c0 = chaseCam(a0.pos, new T.Vector3(Math.sin(yaw), 0, Math.cos(yaw))); camPos.copy(c0.p); camLook.copy(c0.look); state.walkFov = c0.fov;
       if (glowMesh) glowMesh.visible = false; tag.visible = false; spot.intensity = 0;
@@ -268,6 +292,7 @@
     function tick(now) {
       if (!alive) return;
       var dt = Math.min(0.05, (now - (last || now)) / 1000); last = now;
+      if (phase === 'roam') { roamStep(dt, now); renderer.render(scene, camera); state.raf = requestAnimationFrame(tick); return; }
       if (phase === 'door' && now - t0 > 900) { phase = 'walk'; say('Walk in and follow the walkway to <b>Rack ' + esc(o.rackLabel) + '</b>.'); }
       if (phase === 'walk') {
         var speed = Math.max(1.6, len / 9); dist = Math.min(len, dist + speed * dt);
@@ -283,6 +308,7 @@
         var dy2 = Math.atan2(Math.sin(faceYaw - yaw), Math.cos(faceYaw - yaw)); yaw += dy2 * Math.min(1, dt * 5); swing *= 0.85;
         var mp = F.man.position, side = [Math.cos(faceYaw), -Math.sin(faceYaw)];
         if (!endCam) {   // arrived: half a step to the side so the box is not behind him, then the camera
+          state.standAt = mp.clone();   // where he stood in front of the box (used by "walk around yourself")
           var sd = [Math.cos(faceYaw), -Math.sin(faceYaw)], stepTo = mp.clone().add(new T.Vector3(sd[0] * 0.5, 0, sd[1] * 0.5));
           if (!inside(stepTo.x, stepTo.z)) state.stepTo = stepTo; else state.stepTo = null;
           endCam = endCamera(mp);
@@ -309,7 +335,8 @@
         var lift = Math.max(0, Math.min(1, (now - t0 - 1500) / 500)), upA = Math.atan2(binPos.y - (F.HIP + 0.5), 1.45);
         F.AR.sh.rotation.x = -(Math.PI / 2 + upA) * lift; F.AR.elbow.rotation.x = -0.05 * lift;
         if (glowMesh) glowMesh.scale.setScalar(1 + Math.sin(now / 220) * 0.05);
-      } else armF(F.AR, ph + Math.PI);
+      } else if (pointing) { F.AR.sh.rotation.x += (-(Math.PI / 2) - F.AR.sh.rotation.x) * Math.min(1, dt * 8); F.AR.elbow.rotation.x = -0.05; }
+      else armF(F.AR, ph + Math.PI);
       F.man.position.y = wk ? Math.abs(Math.cos(swing)) * 0.03 - 0.015 : 0;
       F.man.rotation.y = yaw; F.shadow.position.set(F.man.position.x, 0.006, F.man.position.z);
       if (phase === 'walk' || phase === 'door') {
@@ -325,17 +352,150 @@
     var ro = window.ResizeObserver ? new ResizeObserver(fit) : null; if (ro) ro.observe(box); else window.addEventListener('resize', fit);
     state.ro = ro;
     box.querySelector('.w3d-x').onclick = close;
-    state.key = function (e) { if (e.key === 'Escape') close(); }; document.addEventListener('keydown', state.key);
-    box.querySelector('.w3d-again').onclick = start;
-    fit(); start(); state.raf = requestAnimationFrame(tick);
+    /* ================= walk around yourself (first person) =================
+     * Keyboard: W A S D or arrows, Shift runs.  Mouse: click, then move it to look (Esc frees it); or hold a button and drag.
+     * Phone: left thumb = joystick to walk, right thumb = drag to look.  Racks, walls and objects stop you; the door lets you through. */
+    /* pointing (B): in first person your own arm comes up from the bottom right and points where you look;
+     * in the guided walk the stickman raises his arm and points ahead. */
+    var pointing = false, fpLift = 0, fpArm = new T.Group();
+    (function () {
+      var sil = new T.MeshLambertMaterial({ color: 0x1b2230, emissive: 0x0a0d14 });
+      var fore = new T.Mesh(new T.CylinderGeometry(0.045, 0.055, 0.5, 12), sil); fore.rotation.x = Math.PI / 2; fore.position.z = -0.2; fpArm.add(fore);
+      var hand = new T.Mesh(new T.SphereGeometry(0.06, 14, 10), sil); hand.scale.set(1, 0.8, 1.2); hand.position.z = -0.48; fpArm.add(hand);
+      var finger = new T.Mesh(new T.CylinderGeometry(0.014, 0.016, 0.14, 8), sil); finger.rotation.x = Math.PI / 2; finger.position.set(0, 0.01, -0.58); fpArm.add(finger);
+      var thumb = new T.Mesh(new T.CylinderGeometry(0.013, 0.015, 0.07, 8), sil); thumb.rotation.set(Math.PI / 2, 0, -0.9); thumb.position.set(-0.04, 0.0, -0.5); fpArm.add(thumb);
+      fpArm.position.set(0.22, -0.75, -0.25); fpArm.rotation.set(0.08, 0.12, 0); fpArm.visible = false;
+      camera.add(fpArm); scene.add(camera);
+    })();
+    function togglePoint() { pointing = !pointing; var b = box.querySelector('.w3d-point'); if (b) b.classList.toggle('on', pointing); }
+    var roam = null, keys = {}, info = box.querySelector('.w3d-info'), joyEl = box.querySelector('.w3d-joy'), hl = null, lastPick = 0, unlockAt = 0;
+    var canvas = renderer.domElement, isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    var EYE = 1.62, ray = new T.Raycaster(), joy = { id: null, x0: 0, y0: 0, dx: 0, dy: 0 }, look = { id: null, x: 0, y: 0 }, drag = null;
+    var nearWallR = function (x, z, r) { return walls2.some(function (w) { var vx = w[2] - w[0], vz = w[3] - w[1], L2 = vx * vx + vz * vz || 1, t = Math.max(0, Math.min(1, ((x - w[0]) * vx + (z - w[1]) * vz) / L2)); return Math.hypot(x - w[0] - vx * t, z - w[1] - vz * t) < r; }); };
+    var free = function (ax, az, bx, bz) {
+      if (inSolid(bx, bz, 0.22) || nearWallR(bx, bz, 0.18)) return false;
+      for (var i = 0; i < walls2.length; i++) if (crosses(ax, az, bx, bz, walls2[i])) return false;
+      return bx > -8 && bz > -8 && bx < o.map.W + 8 && bz < o.map.H + 8;   // a little room outside, not forever
+    };
+    function startRoam(fromMan) {
+      var p0, y0;
+      if (fromMan && state.standAt && (phase === 'there' || phase === 'turn')) {
+        // in front of the box, a little back from it if there is room, looking at the box
+        p0 = state.standAt.clone(); y0 = faceYaw;
+        for (var bk = 0.7; bk > 0; bk -= 0.1) { var tx2 = p0.x + nrm[0] * bk, tz2 = p0.z + nrm[1] * bk; if (!inSolid(tx2, tz2, 0.22) && !nearWallR(tx2, tz2, 0.18)) { p0.x = tx2; p0.z = tz2; break; } }
+      } else if (fromMan) { p0 = F.man.position.clone(); y0 = yaw; }
+      else { var dO = doorOut(o.map), dd0 = o.map.door; p0 = new T.Vector3(dd0.x + dO[0] * 2.6, 0, dd0.y + dO[1] * 2.6); y0 = Math.atan2(-dO[0], -dO[1]); }
+      var aim = fromMan && state.standAt ? Math.atan2(binPos.y - EYE, Math.max(0.3, Math.hypot(binPos.x - p0.x, binPos.z - p0.z))) : 0;
+      roam = { x: p0.x, z: p0.z, yaw: y0, pitch: Math.max(-1.2, Math.min(1.2, aim)), bob: 0 };
+      phase = 'roam'; F.man.visible = false; F.shadow.visible = false; glowMesh && (glowMesh.visible = !!fromMan && glowMesh.visible); tag.visible = false;   // the info card replaces the code tag
+      box.classList.add('roaming'); state.endFov = 0; state.walkFov = 0; fit();
+      say(isTouch ? '<b>Left thumb</b>: walk · <b>right thumb</b>: look around · <b>👉 Point</b> raises your hand. Look at a box to see what is in it.'
+        : '<b>W A S D</b> or arrows to walk · <b>Shift</b> to run · <b>click</b>, then move the mouse to look (or drag) · <b>B</b> points / lowers your hand · <b>Esc</b> frees the mouse. Look at a box to see what is in it.');
+    }
+    function roamStep(dt, now) {
+      var r = roam, fx = Math.sin(r.yaw), fz = Math.cos(r.yaw), rx = -Math.cos(r.yaw), rz = Math.sin(r.yaw);
+      var mv = (keys.w || keys.arrowup ? 1 : 0) - (keys.s || keys.arrowdown ? 1 : 0) - joy.dy;
+      var st = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0) + joy.dx;
+      var dx = fx * mv + rx * st, dz = fz * mv + rz * st, n = Math.hypot(dx, dz);
+      if (n > 0.01) {
+        var sp = (keys.shift ? 3.2 : 1.6) * Math.min(1, n) * dt; dx = dx / n * sp; dz = dz / n * sp;
+        if (free(r.x, r.z, r.x + dx, r.z + dz)) { r.x += dx; r.z += dz; }
+        else if (free(r.x, r.z, r.x + dx, r.z)) r.x += dx;          // slide along what is in the way
+        else if (free(r.x, r.z, r.x, r.z + dz)) r.z += dz;
+        r.bob += sp * 7;
+      }
+      var ey = EYE + Math.sin(r.bob) * 0.025;
+      camera.position.set(r.x, ey, r.z);
+      camera.lookAt(r.x + Math.sin(r.yaw) * Math.cos(r.pitch), ey + Math.sin(r.pitch), r.z + Math.cos(r.yaw) * Math.cos(r.pitch));
+      fpLift += ((pointing ? 1 : 0) - fpLift) * Math.min(1, dt * 9);
+      fpArm.visible = fpLift > 0.02; fpArm.position.y = -0.75 + fpLift * 0.53; fpArm.position.x = 0.22 - fpLift * 0.04;
+      if (now - lastPick > 120) { lastPick = now; pickBox(); }
+      if (glowMesh && glowMesh.visible) glowMesh.scale.setScalar(1 + Math.sin(now / 220) * 0.05);
+    }
+    /** What is in the box you look at. */
+    function pickBox() {
+      ray.setFromCamera({ x: 0, y: 0 }, camera); ray.far = 4.5;
+      var hit = ray.intersectObjects(built.pick, false)[0];
+      if (!hit) { info.hidden = true; if (hl) hl.visible = false; return; }
+      var u = hit.object.userData, lab = o.rackStyle ? o.rackStyle(u.r).label : u.r.id;
+      var what = o.boxInfo ? o.boxInfo(u.r.id, u.shelf, u.slot) : '';
+      info.innerHTML = '<b>Rack ' + esc(lab) + ' · shelf ' + u.shelf + ' · box ' + u.slot + '</b>' + (what ? '<span>' + esc(what) + '</span>' : '');
+      info.hidden = false;
+      if (!hl) { hl = new T.BoxHelper(hit.object, 0xffb300); hl.material.depthTest = false; scene.add(hl); }
+      hl.setFromObject(hit.object); hl.visible = true;
+    }
+    // keyboard
+    var onKey = function (down) {
+      return function (e) {
+        var t = e.target && e.target.tagName; if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
+        var k = (e.key || '').toLowerCase();
+        if (down && k === 'escape') { if (document.pointerLockElement === canvas || performance.now() - unlockAt < 400) return; close(); return; }
+        if (down && k === 'b' && !e.repeat) { togglePoint(); e.preventDefault(); return; }
+        if (phase !== 'roam') return;
+        if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].indexOf(k) >= 0) { keys[k] = down; e.preventDefault(); }
+      };
+    };
+    var kd = onKey(true), ku = onKey(false), blur = function () { keys = {}; };
+    document.addEventListener('keydown', kd); document.addEventListener('keyup', ku); window.addEventListener('blur', blur);
+    // mouse: pointer lock after a click; or hold and drag
+    var turn = function (mx, my, k) { if (!roam) return; roam.yaw -= mx * k; roam.pitch = Math.max(-1.25, Math.min(1.25, roam.pitch - my * k)); };
+    var onMove = function (e) {
+      if (document.pointerLockElement === canvas) turn(e.movementX || 0, e.movementY || 0, 0.0024);
+      else if (drag && e.pointerType !== 'touch') { turn(e.clientX - drag.x, e.clientY - drag.y, 0.005); drag.x = e.clientX; drag.y = e.clientY; }
+    };
+    var onLock = function () { if (document.pointerLockElement !== canvas) unlockAt = performance.now(); box.classList.toggle('locked', document.pointerLockElement === canvas); };
+    document.addEventListener('pointermove', onMove); document.addEventListener('pointerlockchange', onLock);
+    canvas.addEventListener('pointerdown', function (e) {
+      if (phase !== 'roam' || e.pointerType === 'touch') return;
+      drag = { x: e.clientX, y: e.clientY };
+      try { if (canvas.requestPointerLock && document.pointerLockElement !== canvas) canvas.requestPointerLock(); } catch (er) {}
+    });
+    var dragEnd = function () { drag = null; }; document.addEventListener('pointerup', dragEnd);
+    // phone: left half joystick, right half look
+    canvas.addEventListener('touchstart', function (e) {
+      if (phase !== 'roam') return; e.preventDefault();
+      Array.prototype.forEach.call(e.changedTouches, function (t) {
+        if (t.clientX < box.clientWidth / 2 && joy.id === null) { joy.id = t.identifier; joy.x0 = t.clientX; joy.y0 = t.clientY; joyEl.hidden = false; joyEl.style.left = t.clientX + 'px'; joyEl.style.top = t.clientY + 'px'; }
+        else if (look.id === null) { look.id = t.identifier; look.x = t.clientX; look.y = t.clientY; }
+      });
+    }, { passive: false });
+    canvas.addEventListener('touchmove', function (e) {
+      if (phase !== 'roam') return; e.preventDefault();
+      Array.prototype.forEach.call(e.changedTouches, function (t) {
+        if (t.identifier === joy.id) {
+          var ddx = t.clientX - joy.x0, ddy = t.clientY - joy.y0, m = Math.hypot(ddx, ddy), lim = 55, f = m > lim ? lim / m : 1;
+          joy.dx = ddx * f / lim; joy.dy = ddy * f / lim; joyEl.firstChild.style.transform = 'translate(' + ddx * f + 'px,' + ddy * f + 'px)';
+        } else if (t.identifier === look.id) { turn(t.clientX - look.x, t.clientY - look.y, 0.006); look.x = t.clientX; look.y = t.clientY; }
+      });
+    }, { passive: false });
+    var touchEnd = function (e) {
+      Array.prototype.forEach.call(e.changedTouches, function (t) {
+        if (t.identifier === joy.id) { joy.id = null; joy.dx = joy.dy = 0; joyEl.hidden = true; joyEl.firstChild.style.transform = ''; }
+        if (t.identifier === look.id) look.id = null;
+      });
+    };
+    canvas.addEventListener('touchend', touchEnd); canvas.addEventListener('touchcancel', touchEnd);
+    state.cleanup = function () {
+      document.removeEventListener('keydown', kd); document.removeEventListener('keyup', ku); window.removeEventListener('blur', blur);
+      document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerlockchange', onLock); document.removeEventListener('pointerup', dragEnd);
+      try { if (document.pointerLockElement === canvas) document.exitPointerLock(); } catch (er) {}
+    };
+    box.querySelector('.w3d-roam').onclick = function () { startRoam(phase !== 'door' && guided); };
+    box.querySelector('.w3d-point').onclick = togglePoint;
+    // read-only status for tests
+    state.debug = function () { return { phase: phase, roam: roam ? { x: roam.x, z: roam.z, yaw: roam.yaw } : null, pointing: pointing, armUp: fpLift, info: info.hidden ? '' : info.textContent, start: [P[0].x, P[0].z], man: [F.man.position.x, F.man.position.z] }; };
+    if (box.querySelector('.w3d-again')) box.querySelector('.w3d-again').onclick = start;
+    fit();
+    if (guided && o.mode !== 'roam') start(); else startRoam(false);
+    state.raf = requestAnimationFrame(tick);
   }
 
   function close() {
     if (!state) return;
-    state.stop(); cancelAnimationFrame(state.raf); if (state.ro) state.ro.disconnect(); if (state.key) document.removeEventListener('keydown', state.key);
+    state.stop(); cancelAnimationFrame(state.raf); if (state.ro) state.ro.disconnect(); if (state.cleanup) state.cleanup();
     try { state.scene.traverse(function (x) { if (x.geometry) x.geometry.dispose(); if (x.material) { if (x.material.map) x.material.map.dispose(); x.material.dispose(); } }); state.renderer.dispose(); } catch (e) {}
     state.box.remove(); state = null;
   }
 
-  window.Walk3D = { open: open, close: close };
+  window.Walk3D = { open: open, close: close, status: function () { return state && state.debug ? state.debug() : null; } };
 })();

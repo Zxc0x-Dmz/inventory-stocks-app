@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.60 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.61 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1800,6 +1800,25 @@
     }, 40);
   }
 
+  /* ---- 3D: guided walk to a box, or walk around yourself (walk3d.js) ---- */
+  function open3d(opts, btn) {
+    var m = opts.map, label = btn && btn.textContent;
+    var idx = {};   // what box sits at each place: "R01|3|2" -> rows
+    Object.keys(BOXES).forEach(function (k) { var pl = placeOf(k); if (pl) idx[pl.rack + '|' + pl.shelf + '|' + pl.slot] = { loc: k, rows: (BOXES[k] || []).filter(function (x) { return P[x.sku]; }) }; });
+    opts.things = THINGS;
+    opts.rackStyle = function (x) { return { label: rackNo(x), color: mkCol(rackModelOf(x)) }; };
+    opts.boxInfo = function (rackId, shelf, slot) {
+      var b = idx[rackId + '|' + shelf + '|' + slot]; if (!b) return 'No box set at this place';
+      var r0 = b.rows[0]; if (!r0) return b.loc + ' · empty';
+      return b.loc + ' · ' + P[r0.sku].name + ' (' + codeOf(P[r0.sku]) + ') · ' + num(r0.qty) + ' pcs' + (b.rows.length > 1 ? ' · +' + (b.rows.length - 1) + ' more part' + (b.rows.length > 2 ? 's' : '') : '');
+    };
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading 3D…'; }
+    return loadScript(THREE_LIB).then(function () { Walk3D.open(opts); })
+      .catch(function (e) { toast(/3D/.test(e.message || '') ? e.message : 'The 3D view needs internet the first time it opens.', 'bad'); })
+      .then(function () { if (btn) { btn.disabled = false; btn.textContent = label; } });
+    void m;
+  }
+
   /* ---- Find a part ---- */
   var wayNow = null;   // {sku, loc}
   function showWay(sku, loc) {
@@ -1819,7 +1838,13 @@
       $('mapSteps').innerHTML = '<div class="warn">The workshop map is not drawn yet. ' + (isSup() ? 'Tap <b>✏ Edit workshop map</b> below to place the racks.' : 'Ask a supervisor to draw it.') + '</div>';
       $('rackCard').style.display = 'none'; return;
     }
-    if (!wayNow) { $('mapTop').innerHTML = topSvg(m); $('mapSteps').innerHTML = ''; $('rackCard').style.display = 'none'; return; }
+    if (!wayNow) {
+      $('mapTop').innerHTML = topSvg(m); $('rackCard').style.display = 'none';
+      $('mapSteps').innerHTML = '<button type="button" class="big walk3d" id="roam3d">🕹 Explore the workshop in 3D</button>' +
+        '<p class="hint" style="text-align:center">Walk around with W A S D and the mouse (phone: joystick and drag). Look at a box to see what is in it. B points your hand.</p>';
+      $('roam3d').onclick = function () { open3d({ map: m, mode: 'roam' }, this); };
+      return;
+    }
     var p = P[wayNow.sku];
     var boxes = (BY[wayNow.sku] || []).filter(function (l) { return num(l.qty) > 0; });
     boxes.sort(function (a, b) { return num(b.qty) - num(a.qty); });   // fixed order, most pieces first
@@ -1869,12 +1894,7 @@
     $('wayMove').onclick = function () { askPlace(l.loc, renderMap); };
     $('way3d').onclick = function () {
       if (!path) return toast('There is no free walkway to this rack on the map yet.', 'bad');
-      var btn = this; btn.disabled = true; btn.textContent = 'Loading 3D…';
-      loadScript(THREE_LIB).then(function () {
-        Walk3D.open({ map: m, path: path, rack: r, layers: layersOf(r), shelf: pl.shelf, slot: pl.slot, code: l.loc, partName: p.name,
-          rackLabel: rackNo(r), things: THINGS, rackStyle: function (x) { return { label: rackNo(x), color: mkCol(rackModelOf(x)) }; } });
-      }).catch(function (e) { toast(/3D/.test(e.message || '') ? e.message : 'The 3D walk needs internet the first time it opens.', 'bad'); })
-        .then(function () { btn.disabled = false; btn.textContent = '🎥 Walk there in 3D'; });
+      open3d({ map: m, path: path, rack: r, layers: layersOf(r), shelf: pl.shelf, slot: pl.slot, code: l.loc, partName: p.name, rackLabel: rackNo(r) }, this);
     };
     animateWalk(path);
   }
