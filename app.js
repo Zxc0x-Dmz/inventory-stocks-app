@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.42 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.43 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2038,6 +2038,26 @@
    * arrows move 5 cm (Shift: 50 cm), R / Shift+R turn 90°, Esc deselect. */
   var mapClip = null;   // [{kind, item}]
   /** Keys of everything selected (several with Shift+click / box select, or just the one). */
+  /** Give a rack on the map another number.  Boxes placed on it follow (their place is re-sent). */
+  function renameRack(m, from, to) {
+    var r = rackOn(m, from); if (!r || from === to) return;
+    r.id = to;
+    if (rackModel[from] && !rackModel[to]) { rackModel[to] = rackModel[from]; delete rackModel[from]; save('inv.rackModel', rackModel); }
+    Object.keys(BOXES).forEach(function (k) {
+      var pl = placeOf(k); if (!pl || pl.rack !== from) return;
+      var place = to + '/' + pl.shelf + '/' + pl.slot;
+      enqueue('setPlace', { id: uid(), loc: k, place: place }, '📍 ' + k + ' → ' + place);
+      (BOXES[k] || []).forEach(function (l) { l.place = place; });
+    });
+  }
+  /** Racks numbered 1..n with no gaps: the highest numbers move into the missing ones. */
+  function rackGaps(m) {
+    var ids = m.racks.map(function (r) { return r.id; }), n = ids.length, want = [];
+    for (var i = 1; i <= n; i++) want.push('R' + ('0' + i).slice(-2));
+    var missing = want.filter(function (id) { return ids.indexOf(id) < 0; });
+    var extra = ids.filter(function (id) { return want.indexOf(id) < 0; }).sort(function (a, b) { return Number(b.slice(1)) - Number(a.slice(1)); });
+    return { missing: missing.sort(), extra: extra.reverse() };
+  }
   function selList(e) { e = e || mapEd; return e.multi && e.multi.length > 1 ? e.multi.slice() : (e.sel ? [e.sel] : []); }
   function setSel(keys) { keys = keys.filter(function (k, i) { return k && keys.indexOf(k) === i; }); mapEd.multi = keys; mapEd.sel = keys.length ? keys[keys.length - 1] : null; }
   function copyList(keys) { return keys.filter(function (k) { return k !== 'door' && edItem(k); }).map(function (k) { return { kind: edKind(k), item: JSON.parse(JSON.stringify(edItem(k))) }; }); }
@@ -2137,7 +2157,9 @@
     var many = e.multi.length > 1, key = many ? null : e.sel, it = edItem(key), kind = edKind(key);
     var num2 = function (f, v, step, unit) { return '<label class="grp">' + f + ' <input type="number" step="' + step + '" data-num="' + f + '" value="' + (Math.round(v * 100) / 100) + '" style="width:72px">' + unit + '</label>&nbsp; '; };
     $('mapEdit').style.display = '';
-    $('mapEdit').innerHTML = '<div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button>' +
+    var gaps = rackGaps(m);
+    $('mapEdit').innerHTML = (gaps.missing.length ? '<div class="warn">Rack numbers have gaps: ' + esc(gaps.missing.join(', ')) + ' missing, ' + esc(gaps.extra.join(', ')) + ' above R' + ('0' + m.racks.length).slice(-2) + '. <button type="button" id="fixRackNums">🔢 Number them 1–' + m.racks.length + '</button></div>' : '') +
+      '<div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button>' +
       Object.keys(THINGS).map(function (k) { return '<button type="button" data-add="' + k + '">' + THINGS[k].name + '</button>'; }).join('') + '</div>' +
       '<div class="tools"><span class="grp">Room ' + num2('Width', m.W, .5, 'm') + num2('Depth', m.H, .5, 'm') + '</span></div>' +
       '<p class="hint">On a laptop: <b>Ctrl+Z</b> undo, <b>Ctrl+Y</b> redo, <b>Ctrl+S</b> save, <b>Ctrl+A</b> select all, <b>Shift+click</b> select several, <b>Ctrl+C / Ctrl+V</b> copy and paste, <b>Delete</b> remove, <b>arrows</b> move, <b>R</b> turn 90°, <b>?</b> all shortcuts.</p>' +
@@ -2302,10 +2324,15 @@
         setLayers(it, L); drawEditor();
       }; });
     }
+    if ($('fixRackNums')) $('fixRackNums').onclick = function () {
+      var g = rackGaps(m), done = [];
+      g.extra.forEach(function (id, i) { if (g.missing[i]) { renameRack(m, id, g.missing[i]); done.push(id + ' → ' + g.missing[i]); } });
+      drawEditor(); toast('Renumbered: ' + done.join(', ') + '. Save, then Deploy to live.', 'good');
+    };
     qsa('#mapEdit [data-f]').forEach(function (inp) {
       inp[inp.tagName === 'SELECT' ? 'onchange' : 'oninput'] = function () {
         var f = inp.dataset.f;
-        if (f === 'id') { it.id = inp.value; e.sel = 'r' + it.id; drawEditor(); return; }
+        if (f === 'id') { renameRack(m, it.id, inp.value); e.sel = 'r' + it.id; drawEditor(); return; }
         it[f] = inp.value; if (inp.tagName === 'SELECT') drawEditor(); else edRedraw();
       };
     });
