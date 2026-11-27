@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.43 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.44 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1193,7 +1193,7 @@
     beep(true); chooseInBox(loc.loc, go);
   }
   /** Restock list: what you type filters the white boxes (box code, part, SKU, rack).  Empty: refill suggestions. */
-  function rsPlaceTxt(loc) { var pl = placeOf(loc); return pl ? 'Rack ' + pl.rack + ' · shelf ' + pl.shelf + ' · box ' + pl.slot : 'no place set'; }
+  function rsPlaceTxt(loc) { var pl = placeOf(loc); return pl ? 'Rack ' + rackNoOf(pl.rack) + ' · shelf ' + pl.shelf + ' · box ' + pl.slot : 'no place set'; }
   function rsPick(loc, sku, dest) {
     rs = { loc: loc, sku: sku }; var l = lk(loc, sku);
     $('rsQty').value = Math.max(1, num(l && l.qty)); $('restockInput').value = ''; renderRestock();
@@ -1448,6 +1448,8 @@
       if (row) row.value = JSON.stringify(o); else snap.settings.push({ key: 'map', value: JSON.stringify(o) });
     });
   }
+  function rackNo(r) { return (r && r.num) || (r && r.id) || ''; }
+  function rackNoOf(id) { var m = typeof mapData === 'function' ? mapData() : null; return rackNo(m && rackOn(m, id)) || id; }
   function rackOn(m, id) { return m.racks.filter(function (r) { return r.id === id; })[0]; }
   function rackModelOf(r) { return (r && r.model) || rackModel[r && r.id] || ''; }
   function toWorld(it, lx, ly) { var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [it.x + lx * c - ly * s, it.y + lx * s + ly * c]; }
@@ -1519,7 +1521,7 @@
     var m = /^(R\d{2})-S(\d+)-B(\d+)/.exec(normLoc_(loc));
     return m ? { rack: m[1], shelf: Number(m[2]), slot: Number(m[3]) } : null;
   }
-  function placeText(pl) { return 'Rack ' + pl.rack + ' · shelf ' + pl.shelf + ' from the bottom · box ' + pl.slot + ' from the left'; }
+  function placeText(pl) { return 'Rack ' + rackNoOf(pl.rack) + ' · shelf ' + pl.shelf + ' from the bottom · box ' + pl.slot + ' from the left'; }
   function ordinal(n) { return n + (n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'); }
 
   var MS = 40;   // pixels per metre in the drawings
@@ -1621,7 +1623,7 @@
       var col = MAP_COLORS[rackModelOf(it)] || MAP_COLORS[''], lit = o.hi === it.id;
       body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="' + col + '" opacity="' + (o.hi && !lit ? .35 : 1) + '"' + (lit ? ' stroke="#ffd400" stroke-width="5"' : '') + '/>' +
         '<line x1="' + (-w / 2) + '" y1="' + (d / 2) + '" x2="' + (w / 2) + '" y2="' + (d / 2) + '" stroke="#fff" stroke-width="3" opacity=".95"/>' +
-        '<text x="0" y="' + Math.min(5, d / 4) + '" text-anchor="middle" font-size="' + Math.max(9, Math.min(14, d * .55)) + '" font-weight="800" fill="#fff">' + it.id + (it.name ? '<tspan font-size="' + Math.max(8, Math.min(11, d * .4)) + '" font-weight="600"> · ' + esc(it.name) + '</tspan>' : '') + '</text>';
+        '<text x="0" y="' + Math.min(5, d / 4) + '" text-anchor="middle" font-size="' + Math.max(9, Math.min(14, d * .55)) + '" font-weight="800" fill="#fff">' + esc(rackNo(it)) + (it.name ? '<tspan font-size="' + Math.max(8, Math.min(11, d * .4)) + '" font-weight="600"> · ' + esc(it.name) + '</tspan>' : '') + '</text>';
     } else if (kind === 'door') {
       body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" fill="#1f9d55" stroke="#0f6b37" stroke-width="2"/>' +
         '<line x1="0" y1="' + (d / 2) + '" x2="0" y2="' + (d / 2 + S * .7) + '" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>' +
@@ -1800,10 +1802,10 @@
     var pl = placeOf(l.loc), r = rackOn(m, pl.rack), mk = rackModelOf(r), path = walkPath(m, frontPoint(r, pl.slot, pl.shelf));
     var col = MAP_COLORS[mk] || MAP_COLORS[''], lay = layersOf(r)[pl.shelf - 1], kindName = lay ? (lay.t === 'TOTE' ? 'white box' : 'blue bin') : '', kindPlural = lay ? (lay.t === 'TOTE' ? 'white boxes' : 'blue bins') : '';
     $('mapTop').innerHTML = topSvg(m, { hi: r.id, path: path });
-    $('rackCard').style.display = ''; $('rackCap').textContent = 'Rack ' + r.id + ' from the front' + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '');
+    $('rackCard').style.display = ''; $('rackCap').textContent = 'Rack ' + rackNo(r) + ' from the front' + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '');
     $('mapRack').innerHTML = rackSvg(r, pl, l.loc, rackOcc(r.id, l.loc));
     $('mapSteps').innerHTML = '<div class="steps"><b>' + esc(p.name) + '</b> <span class="mono">' + esc(codeOf(p)) + '</span>' + picker +
-      '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + r.id + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + (r.name ? ' · ' + esc(r.name) : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
+      '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + esc(rackNo(r)) + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + (r.name ? ' · ' + esc(r.name) : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
       '<li>Stand in front of the rack and face it.</li>' +
       '<li>Count the shelves from the bottom: <b>' + ordinal(pl.shelf) + ' shelf</b>' + (kindName ? ' (' + kindPlural + ')' : '') + '.</li>' +
       '<li>Count the ' + (kindPlural || 'boxes') + ' from your left: <b>' + ordinal(pl.slot) + ' ' + (kindName || 'box') + '</b>, label <b class="mono">' + esc(l.loc) + '</b>.</li>' +
@@ -1842,7 +1844,7 @@
       var occ = rackOcc(rk, me), there = occ[sh + '/' + sl];
       var parts = inBox(me).map(function (x) { return P[x.sku].name + ' (' + num(x.qty) + ')'; });
       modal('<h3 class="formtitle">📍 Where is ' + esc(me) + '?</h3>' + (parts.length ? '<p class="hint" style="margin-top:-4px">' + esc(parts.join(' · ')) + '</p>' : '') +
-        '<label class="lbl">Rack</label><div class="rsrow">' + racks.map(function (id) { var rr = rackOn(m, id); return '<button type="button" class="rs' + (id === rk ? ' on' : '') + '" data-prk="' + id + '" style="' + (rr ? 'border-color:' + (MAP_COLORS[rackModelOf(rr)] || '') : '') + '">' + id + '</button>'; }).join('') + '</div>' +
+        '<label class="lbl">Rack</label><div class="rsrow">' + racks.map(function (id) { var rr = rackOn(m, id); return '<button type="button" class="rs' + (id === rk ? ' on' : '') + '" data-prk="' + id + '" style="' + (rr ? 'border-color:' + (MAP_COLORS[rackModelOf(rr)] || '') : '') + '">' + esc(rackNo(rr) || id) + '</button>'; }).join('') + '</div>' +
         '<p class="hint">Tap the shelf and box in the rack below (shelf 1 is the bottom, boxes counted from the left).</p><div id="placePick">' + rackSvg(r, { shelf: sh, slot: sl }, normLoc_(loc)) + '</div>' +
         '<p class="hint" id="placeTxt">' + esc(placeText({ rack: rk, shelf: sh, slot: sl })) + '</p>' +
         (there ? '<div class="warn">That spot already has <b class="mono">' + esc(there) + '</b>. Saving <b>swaps</b> them: ' + esc(there) + (was ? ' goes to ' + esc(placeText(was)) : ' gets no place (set it later)') + '.</div>' : '<p class="hint">Grey boxes already have a box in them. Pick a taken one to swap the two boxes.</p>') +
@@ -1922,7 +1924,7 @@
     }
     var it = edItem(e.sel), kind = edKind(e.sel);
     if (!it) return '<div class="mapfloat hint">' + '<button type="button" data-fu="-1" title="Undo (Ctrl+Z)"' + (mapEd.hi > 0 ? '' : ' disabled') + '>↶</button><button type="button" data-fu="1" title="Redo (Ctrl+Y)"' + (mapEd.hist && mapEd.hi < mapEd.hist.length - 1 ? '' : ' disabled') + '>↷</button>' + ' Tap or drag anything on the map. ' + (window.matchMedia('(pointer:fine)').matches ? 'Shift + wheel turns it. Hold Alt while dragging to place it without the magnet. ' : '') + 'Things snap to the floor squares and line up with their neighbours (pink lines). <button type="button" data-fu="help" title="Keyboard shortcuts (?)">⌨ Shortcuts</button></div>';
-    var name = kind === 'rack' ? 'Rack ' + it.id + (it.name ? ' · ' + esc(it.name) : '') : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name;
+    var name = kind === 'rack' ? 'Rack ' + esc(rackNo(it)) + (it.name ? ' · ' + esc(it.name) : '') : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name;
     return '<div class="mapfloat">' + '<button type="button" data-fu="-1" title="Undo (Ctrl+Z)"' + (mapEd.hi > 0 ? '' : ' disabled') + '>↶</button><button type="button" data-fu="1" title="Redo (Ctrl+Y)"' + (mapEd.hist && mapEd.hi < mapEd.hist.length - 1 ? '' : ' disabled') + '>↷</button>' + '<b>' + name + '</b><span class="ang">' + Math.round(it.a || 0) + '°</span>' +
       '<button type="button" data-fl="rot-15" title="Turn left 15°">↺ 15°</button><button type="button" data-fl="rot15" title="Turn right 15°">↻ 15°</button>' +
       '<button type="button" data-fl="rot-90" title="Turn left 90°">↺ 90°</button><button type="button" data-fl="rot90" title="Turn right 90°">↻ 90°</button>' +
@@ -2041,14 +2043,37 @@
   /** Give a rack on the map another number.  Boxes placed on it follow (their place is re-sent). */
   function renameRack(m, from, to) {
     var r = rackOn(m, from); if (!r || from === to) return;
-    r.id = to;
-    if (rackModel[from] && !rackModel[to]) { rackModel[to] = rackModel[from]; delete rackModel[from]; save('inv.rackModel', rackModel); }
+    var other = rackOn(m, to);   // number already used: the two racks swap numbers
+    var moves = [];
     Object.keys(BOXES).forEach(function (k) {
-      var pl = placeOf(k); if (!pl || pl.rack !== from) return;
-      var place = to + '/' + pl.shelf + '/' + pl.slot;
-      enqueue('setPlace', { id: uid(), loc: k, place: place }, '📍 ' + k + ' → ' + place);
-      (BOXES[k] || []).forEach(function (l) { l.place = place; });
+      var pl = placeOf(k); if (!pl) return;
+      if (pl.rack === from) moves.push([k, to + '/' + pl.shelf + '/' + pl.slot]);
+      else if (other && pl.rack === to) moves.push([k, from + '/' + pl.shelf + '/' + pl.slot]);
     });
+    r.id = to; if (other) other.id = from;
+    var mf = rackModel[from], mt = rackModel[to];
+    if (mf || mt) { if (mf) rackModel[to] = mf; else delete rackModel[to]; if (other && mt) rackModel[from] = mt; else delete rackModel[from]; save('inv.rackModel', rackModel); }
+    moves.forEach(function (x) {
+      enqueue('setPlace', { id: uid(), loc: x[0], place: x[1] }, '📍 ' + x[0] + ' → ' + x[1]);
+      (BOXES[x[0]] || []).forEach(function (l) { l.place = x[1]; });
+    });
+    return other ? 'swap' : 'move';
+  }
+  /** Rack numbers list: every rack, its name, and a number you can change (a used number swaps). */
+  function rackNumOptions(m, cur) {
+    return RACKS.map(function (x) { var o = rackOn(m, x.loc); return '<option value="' + x.loc + '"' + (x.loc === cur ? ' selected' : '') + '>' + x.loc + (o && x.loc !== cur ? ' ⇄ swap' + (o.name ? ' (' + esc(o.name) + ')' : '') : '') + '</option>'; }).join('');
+  }
+  function rackNumbers(m) {
+    var list = m.racks.slice().sort(function (a, b) { return Number(a.id.slice(1)) - Number(b.id.slice(1)); });
+    modal('<h3 class="formtitle">🔢 Rack numbers</h3><p class="hint">Type the number you want on each rack (any text, two racks may have the same one). Boxes stay on their rack. Then <b>Save draft</b> and <b>Deploy to live</b>.</p>' +
+      '<div class="rnlist">' + list.map(function (r) {
+        return '<div class="rnrow"><span class="grow">' + (r.name ? esc(r.name) : '<i>no name</i>') + (r.model ? ' <small>' + esc(MODEL_TAG[r.model] || r.model) + '</small>' : '') + '<br><small>code ' + esc(r.id) + '</small></span><input data-rn="' + esc(r.id) + '" value="' + esc(rackNo(r)) + '" style="width:90px"></div>';
+      }).join('') + '</div><div class="btns"><button type="button" class="big ok" data-x="close" id="rnDone">Done</button></div>');
+    qsa('#modalBody [data-rn]').forEach(function (inp) { inp.oninput = function () {
+      var r = rackOn(m, inp.dataset.rn), v = inp.value.trim(); if (!r) return;
+      if (v && v !== r.id) r.num = v; else delete r.num;
+      drawEditor();
+    }; });
   }
   /** Racks numbered 1..n with no gaps: the highest numbers move into the missing ones. */
   function rackGaps(m) {
@@ -2159,13 +2184,13 @@
     $('mapEdit').style.display = '';
     var gaps = rackGaps(m);
     $('mapEdit').innerHTML = (gaps.missing.length ? '<div class="warn">Rack numbers have gaps: ' + esc(gaps.missing.join(', ')) + ' missing, ' + esc(gaps.extra.join(', ')) + ' above R' + ('0' + m.racks.length).slice(-2) + '. <button type="button" id="fixRackNums">🔢 Number them 1–' + m.racks.length + '</button></div>' : '') +
-      '<div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button>' +
+      '<div class="tools"><button type="button" id="rackNums">🔢 Rack numbers</button></div><div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button>' +
       Object.keys(THINGS).map(function (k) { return '<button type="button" data-add="' + k + '">' + THINGS[k].name + '</button>'; }).join('') + '</div>' +
       '<div class="tools"><span class="grp">Room ' + num2('Width', m.W, .5, 'm') + num2('Depth', m.H, .5, 'm') + '</span></div>' +
       '<p class="hint">On a laptop: <b>Ctrl+Z</b> undo, <b>Ctrl+Y</b> redo, <b>Ctrl+S</b> save, <b>Ctrl+A</b> select all, <b>Shift+click</b> select several, <b>Ctrl+C / Ctrl+V</b> copy and paste, <b>Delete</b> remove, <b>arrows</b> move, <b>R</b> turn 90°, <b>?</b> all shortcuts.</p>' +
       '<p class="hint">Drag things to move them. Tap one to select it: the <b>round</b> handle turns it, the <b>square</b> handles change length and depth. The white edge of a rack is its front, where people stand. The arrow of the entrance points into the room.</p>' +
-      (it ? '<div class="rkpanel"><b>' + (kind === 'rack' ? 'Rack ' + it.id : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name) + '</b>' +
-        (kind === 'rack' ? '<select data-f="id">' + [it.id].concat(free).map(function (id) { return '<option' + (id === it.id ? ' selected' : '') + '>' + id + '</option>'; }).join('') + '</select>' +
+      (it ? '<div class="rkpanel"><b>' + (kind === 'rack' ? 'Rack ' + esc(rackNo(it)) : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name) + '</b>' +
+        (kind === 'rack' ? '<label class="grp">Rack number <input data-f="num" value="' + esc(rackNo(it)) + '" style="width:80px"></label>' +
           '<label class="grp">Name <input data-f="name" value="' + esc(it.name || '') + '" placeholder="e.g. Brake parts" style="width:140px"></label>' +
           '<select data-f="model">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((it.model || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' : '') +
         (kind !== 'wall' && kind !== 'door' ? '<label class="grp">' + (kind === 'label' ? 'Text' : 'Name on map') + ' <input data-f="text" value="' + esc(it.text || '') + '" placeholder="' + (kind === 'area' ? 'e.g. Scooter parking' : kind === 'label' ? 'e.g. Office' : esc((THINGS[kind] || {}).short || (THINGS[kind] || {}).name || '')) + '" style="width:150px"></label>' : '') +
@@ -2324,6 +2349,7 @@
         setLayers(it, L); drawEditor();
       }; });
     }
+    $('rackNums').onclick = function () { rackNumbers(m); };
     if ($('fixRackNums')) $('fixRackNums').onclick = function () {
       var g = rackGaps(m), done = [];
       g.extra.forEach(function (id, i) { if (g.missing[i]) { renameRack(m, id, g.missing[i]); done.push(id + ' → ' + g.missing[i]); } });
@@ -2332,7 +2358,8 @@
     qsa('#mapEdit [data-f]').forEach(function (inp) {
       inp[inp.tagName === 'SELECT' ? 'onchange' : 'oninput'] = function () {
         var f = inp.dataset.f;
-        if (f === 'id') { renameRack(m, it.id, inp.value); e.sel = 'r' + it.id; drawEditor(); return; }
+        if (f === 'id') { var was = it.id, how = renameRack(m, was, inp.value); e.sel = 'r' + it.id; toast(how === 'swap' ? was + ' ⇄ ' + it.id + ' swapped' : was + ' is now ' + it.id, 'good'); drawEditor(); return; }
+        if (f === 'num') { var v = inp.value.trim(); if (v && v !== it.id) it.num = v; else delete it.num; edRedraw(); return; }
         it[f] = inp.value; if (inp.tagName === 'SELECT') drawEditor(); else edRedraw();
       };
     });
@@ -2684,7 +2711,7 @@
     if (lbMode === 'RACK') {
       $('labelList').innerHTML = pool.map(function (r) {
         var n = snap.locations.filter(function (l) { return normLoc_(l.loc).indexOf(r.loc + '-') === 0; }).length;
-        return '<label class="item rk-' + (rackModel[r.loc] || 'none') + '"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + r.loc + '</span> · Rack ' + Number(r.loc.slice(1)) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><select class="rksel" data-rm="' + r.loc + '">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((rackModel[r.loc] || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
+        return '<label class="item rk-' + (rackModel[r.loc] || 'none') + '"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + esc(rackNoOf(r.loc)) + '</span>' + (rackNoOf(r.loc) !== r.loc ? ' · code ' + r.loc : ' · Rack ' + Number(r.loc.slice(1))) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><select class="rksel" data-rm="' + r.loc + '">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((rackModel[r.loc] || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
       }).join('');
       qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected signs (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
       qsa('#labelList [data-pr]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewRack(b.dataset.pr); }; });
@@ -2753,7 +2780,7 @@
   var RACK_MODELS = [['', 'No model'], ['NB3', 'C1'], ['OK4', '400C'], ['NB2', 'A200'], ['UNI', 'Universal']];
   function rackSign(r) {
     var mr = typeof mapData === 'function' ? rackOn(mapData(), r.loc) : null, m = rackModel[r.loc] || (mr && mr.model) || '', tag = { NB3: 'C1', OK4: '400C', NB2: 'A200', UNI: 'Universal' }[m] || '';
-    return '<div class="lab racksign rk-' + (m || 'none') + '"><div class="rs-k">RACK</div><div class="rs-n">' + r.loc + '</div>' +
+    return '<div class="lab racksign rk-' + (m || 'none') + '"><div class="rs-k">RACK</div><div class="rs-n">' + esc(rackNo(mr) || r.loc) + '</div>' +
       (tag ? '<div class="rs-m"><b>' + tag + '</b><span>' + esc((MODELS[m] || {}).name || '') + '</span></div>' : '') + '</div>';
   }
   function rackPages(signs) {
