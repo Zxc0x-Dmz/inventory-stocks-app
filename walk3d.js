@@ -109,16 +109,23 @@
       var lay = r === o.rack ? o.layers : (r.layers && r.layers.length ? r.layers : (function () { var a = []; for (var i = 0; i < Math.max(1, r.shelves || 1); i++) a.push({ t: 'BIN', n: Math.max(1, r.slots || 1) }); return a; })());
       var w = Math.max(0.4, r.w), dd = Math.max(0.3, r.d), sh = 0.46, H = 0.25 + lay.length * sh + 0.15;
       var gadd = function (geo, mat, x, y, z) { var mm = new T.Mesh(geo, mat); mm.position.set(x, y, z); g.add(mm); return mm; };
+      var lines = [];   // black outlines of every box and shelf on this rack
+      var outline = function (geo, x, y, z) { var e = new T.EdgesGeometry(geo).attributes.position.array; for (var q = 0; q < e.length; q += 3) lines.push(e[q] + x, e[q + 1] + y, e[q + 2] + z); };
       [-1, 1].forEach(function (sx) { [-1, 1].forEach(function (sz) { gadd(new T.BoxGeometry(0.06, H, 0.06), up, sx * w / 2, H / 2, sz * dd / 2); }); });
       lay.forEach(function (ly, si) {
-        var y = 0.22 + si * sh; gadd(new T.BoxGeometry(w, 0.04, dd), board, 0, y, 0);
+        var y = 0.22 + si * sh, bgeo = new T.BoxGeometry(w, 0.04, dd); gadd(bgeo, board, 0, y, 0); outline(bgeo, 0, y, 0);
         var n = Math.max(1, ly.n), bw = w / n;
         for (var i = 1; i <= n; i++) {
           var bx = -w / 2 + bw * (i - 0.5), hit = r === o.rack && si + 1 === o.shelf && i === o.slot;
-          var b = gadd(new T.BoxGeometry(bw * 0.84, ly.t === 'TOTE' ? 0.34 : 0.3, dd * 0.82), hit ? new T.MeshBasicMaterial({ color: 0xffe600 }) : ly.t === 'TOTE' ? toteM : binM, bx, y + 0.18, 0.02);
+          var bgeo2 = new T.BoxGeometry(bw * 0.84, ly.t === 'TOTE' ? 0.34 : 0.3, dd * 0.82);
+          var b = gadd(bgeo2, hit ? new T.MeshBasicMaterial({ color: 0xffe600 }) : ly.t === 'TOTE' ? toteM : binM, bx, y + 0.18, 0.02);
+          if (hit) b.add(new T.LineSegments(new T.EdgesGeometry(bgeo2), new T.LineBasicMaterial({ color: 0x111111 })));   // shows with the glow
+          else outline(bgeo2, bx, y + 0.18, 0.02);
           if (hit) { target = { mesh: b, local: [bx, y + 0.18] }; b.visible = false; }
         }
       });
+      var lg = new T.BufferGeometry(); lg.setAttribute('position', new T.Float32BufferAttribute(lines, 3));
+      g.add(new T.LineSegments(lg, new T.LineBasicMaterial({ color: 0x1a1d22 })));
       var st = o.rackStyle ? o.rackStyle(r) : { label: r.id, color: '#1e6fd9' };
       var tex = label(String(st.label || r.id), st.color || '#1e6fd9', '#ffffff');
       [1, -1].forEach(function (side) { var s = gadd(new T.PlaneGeometry(Math.min(1.3, w * 0.8), Math.min(0.65, w * 0.4)), new T.MeshBasicMaterial({ map: tex }), 0, H + 0.4, side * (dd / 2 + 0.01)); if (side < 0) s.rotation.y = Math.PI; });
@@ -197,9 +204,9 @@
       var side = [Math.cos(faceYaw), -Math.sin(faceYaw)], tries = [[2.6, 1.0], [2.2, 0.9], [1.9, 0.7], [1.6, 0.6], [1.3, 0.5], [1.0, 0.4]];
       for (var k = 0; k < tries.length; k++) {   // the camera goes to the opposite side of his half step
         var cx = mp.x + nrm[0] * tries[k][0] - side[0] * tries[k][1], cz = mp.z + nrm[1] * tries[k][0] - side[1] * tries[k][1];
-        if (!inside(cx, cz)) return new T.Vector3(cx, 1.85, cz);
+        if (!inside(cx, cz)) { var tight = Math.max(0, 2.6 - tries[k][0]); state.endFov = 58 + tight * 12; return new T.Vector3(cx, 1.85 + tight * 0.45, cz); }
       }
-      return new T.Vector3(mp.x + nrm[0] * 0.9, 2.1, mp.z + nrm[1] * 0.9);
+      state.endFov = 80; return new T.Vector3(mp.x + nrm[0] * 0.9, 2.7, mp.z + nrm[1] * 0.9);
     }
     var binW = o.rack && built.target ? world(o.rack, built.target.local[0], 0) : [P[P.length - 1].x, P[P.length - 1].z];
     var binPos = new T.Vector3(binW[0], built.target ? built.target.local[1] : 1, binW[1]);
@@ -207,7 +214,7 @@
 
     var phase, t0, dist, yaw, swing = 0, last = 0, camPos = new T.Vector3(), camLook = new T.Vector3(), alive = true;
     function start() {
-      phase = 'door'; t0 = performance.now(); dist = 0; swing = 0; endCam = null;
+      phase = 'door'; t0 = performance.now(); dist = 0; swing = 0; endCam = null; state.endFov = 0; fit();
       var a0 = at(0); yaw = Math.atan2(a0.dir.x, a0.dir.z); F.man.position.copy(a0.pos);
       camPos.copy(a0.pos).add(new T.Vector3(-Math.sin(yaw) * 3.4, 1.75, -Math.cos(yaw) * 3.4)); camLook.copy(a0.pos).add(new T.Vector3(Math.sin(yaw) * 5, 1.35, Math.cos(yaw) * 5));
       if (glowMesh) glowMesh.visible = false; tag.visible = false; spot.intensity = 0;
@@ -236,6 +243,8 @@
         }
         if (state.stepTo) { F.man.position.lerp(state.stepTo, Math.min(1, dt * 3)); swing += dt * 2; }
         camPos.lerp(endCam, Math.min(1, dt * 2.4));
+        var wantFov = Math.max(box.clientWidth < 520 ? 68 : 58, state.endFov || 0);
+        if (Math.abs(camera.fov - wantFov) > 0.3) { camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 2.4); camera.updateProjectionMatrix(); }
         camLook.lerp(binPos.clone().setY(Math.max(0.9, binPos.y)), Math.min(1, dt * 3));
         if (phase === 'turn' && now - t0 > 1500) {
           phase = 'there'; if (glowMesh) glowMesh.visible = true;
