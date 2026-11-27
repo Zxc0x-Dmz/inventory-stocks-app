@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.41 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.42 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2600,12 +2600,12 @@
 
   /** A box for the Labels tab.  Boxes are never dropped: an emptied box keeps its code and label (empty: true),
    *  so a damaged sticker can always be printed again. */
-  var CODE_MODEL = { C1: 'NB3', A200: 'NB2', OK: 'OK4', UNI: 'UNI' };
+  var CODE_TO_MODEL = { C1: 'NB3', A200: 'NB2', OK: 'OK4', UNI: 'UNI' };   // box code prefix -> model (CODE_MODEL is the other way round)
   function labelBox(k) {
     var rows = inBox(k); if (rows.length) return { loc: k, type: rows[0].type, rows: rows, model: P[rows[0].sku].model };
     var any = BOXES[k] || []; if (!any.length) return null;
     var mk = /^([A-Z0-9]+)-[BT]\d/.exec(k);
-    return { loc: k, type: any[0].type, rows: [], empty: true, model: (mk && CODE_MODEL[mk[1]]) || 'UNI', printed: any[0].label_printed || '' };
+    return { loc: k, type: any[0].type, rows: [], empty: true, model: (mk && CODE_TO_MODEL[mk[1]]) || 'UNI', printed: any[0].label_printed || '' };
   }
   function labelNotPrinted(b) { return b.empty ? !b.printed : b.rows.some(function (r) { return !r.label_printed; }); }
   function emptyLabel(b) {
