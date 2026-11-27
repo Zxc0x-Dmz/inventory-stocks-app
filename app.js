@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.44 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.45 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1911,6 +1911,31 @@
     qsa('#mapLayers [data-eye]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); var k = b.dataset.eye; e.hidden[k] = !e.hidden[k]; if (e.hidden[k] && e.sel === k) e.sel = null; drawEditor(); }; });
     qsa('#mapLayers [data-lock]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); var o = edItem(b.dataset.lock); if (!o) return; if (o.lock) delete o.lock; else o.lock = true; drawEditor(); }; });
   }
+  /** Double-tap an object on the map: type its rack number (racks) or its name (other things) right there. */
+  function inlineEdit(k, g) {
+    var it = edItem(k), kind = edKind(k); if (!it || kind === 'wall' || kind === 'door') return;
+    var host = $('mapTop'), hb = host.getBoundingClientRect(), gb = g.getBoundingClientRect();
+    var old = document.getElementById('mapInline'); if (old) old.remove();
+    var inp = document.createElement('input'); inp.id = 'mapInline';
+    inp.value = kind === 'rack' ? rackNo(it) : (it.text || '');
+    inp.placeholder = kind === 'rack' ? 'Rack number' : 'Name on map';
+    var w = Math.max(120, gb.width);
+    inp.style.cssText = 'position:absolute;z-index:20;left:' + Math.max(0, gb.left - hb.left + host.scrollLeft + gb.width / 2 - w / 2) + 'px;top:' + (gb.top - hb.top + host.scrollTop + gb.height / 2 - 20) + 'px;width:' + w + 'px';
+    host.appendChild(inp); inp.focus(); inp.select();
+    var done = false;
+    var finish = function (keep) {
+      if (done) return; done = true;
+      if (keep) {
+        var v = inp.value.trim();
+        if (kind === 'rack') { if (v && v !== it.id) it.num = v; else delete it.num; }
+        else it.text = v;
+      }
+      inp.remove(); mapEd.sel = k; mapEd.multi = [k]; drawEditor();
+    };
+    inp.onkeydown = function (ev) { ev.stopPropagation(); if (ev.key === 'Enter') finish(true); else if (ev.key === 'Escape') finish(false); };
+    inp.onblur = function () { finish(true); };
+    inp.onpointerdown = function (ev) { ev.stopPropagation(); };
+  }
   /** Buttons floating on the map for the selected object, so nothing needs scrolling. */
   function floatBar() {
     var e = mapEd;
@@ -2188,7 +2213,7 @@
       Object.keys(THINGS).map(function (k) { return '<button type="button" data-add="' + k + '">' + THINGS[k].name + '</button>'; }).join('') + '</div>' +
       '<div class="tools"><span class="grp">Room ' + num2('Width', m.W, .5, 'm') + num2('Depth', m.H, .5, 'm') + '</span></div>' +
       '<p class="hint">On a laptop: <b>Ctrl+Z</b> undo, <b>Ctrl+Y</b> redo, <b>Ctrl+S</b> save, <b>Ctrl+A</b> select all, <b>Shift+click</b> select several, <b>Ctrl+C / Ctrl+V</b> copy and paste, <b>Delete</b> remove, <b>arrows</b> move, <b>R</b> turn 90°, <b>?</b> all shortcuts.</p>' +
-      '<p class="hint">Drag things to move them. Tap one to select it: the <b>round</b> handle turns it, the <b>square</b> handles change length and depth. The white edge of a rack is its front, where people stand. The arrow of the entrance points into the room.</p>' +
+      '<p class="hint"><b>Double-tap</b> a rack to type its number on the spot (or another object to name it). Drag things to move them. Tap one to select it: the <b>round</b> handle turns it, the <b>square</b> handles change length and depth. The white edge of a rack is its front, where people stand. The arrow of the entrance points into the room.</p>' +
       (it ? '<div class="rkpanel"><b>' + (kind === 'rack' ? 'Rack ' + esc(rackNo(it)) : kind === 'door' ? '🚪 Entrance' : (THINGS[kind] || {}).name) + '</b>' +
         (kind === 'rack' ? '<label class="grp">Rack number <input data-f="num" value="' + esc(rackNo(it)) + '" style="width:80px"></label>' +
           '<label class="grp">Name <input data-f="name" value="' + esc(it.name || '') + '" placeholder="e.g. Brake parts" style="width:140px"></label>' +
@@ -2215,6 +2240,9 @@
       }
       var k = g.dataset.it, o = edItem(k); if (!o) return;
       ev.preventDefault();
+      var now = Date.now(), dbl = !h && !add && e.lastTap && e.lastTap.k === k && now - e.lastTap.t < 450;
+      e.lastTap = { k: k, t: now };
+      if (dbl) { e.drag = null; e.lastTap = null; inlineEdit(k, g); return; }
       if (add && !h) {   // Shift / Ctrl + click: add to or remove from the selection
         var cur = selList(); if (cur.indexOf(k) >= 0) cur.splice(cur.indexOf(k), 1); else cur.push(k);
         setSel(cur); drawEditor(); return;

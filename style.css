@@ -625,3 +625,6 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 .rnlist { max-height: 55vh; overflow: auto; }
 .rnrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .rnrow b { min-width: 38px; } .rnrow select { width: auto; } .rnrow small { color: #6b7280; }
+
+#mapTop { position: relative; }
+#mapInline { font-size: 16px; font-weight: 800; text-align: center; border: 2.5px solid #e6007e; border-radius: 8px; padding: 6px 8px; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
