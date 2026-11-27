@@ -696,7 +696,7 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 .calert .ca button.x { background: transparent; padding: 8px; }
 #tabs button { position: relative; }
 .tbadge { position: absolute; top: 4px; right: calc(50% - 22px); min-width: 18px; height: 18px; border-radius: 9px; background: #d93025; color: #fff; font: 700 11px/18px system-ui, sans-serif; font-style: normal; padding: 0 4px; }
-.tbadge.soon { background: #e8a200; }
+.tbadge.soon { background: #f0b400; color: #2b1d00; }
 .tbadge[hidden] { display: none; }
 .cbar { height: 10px; border-radius: 5px; background: #e4e7eb; overflow: hidden; margin: 0 0 10px; }
 .cbar[hidden] { display: none; }
@@ -739,4 +739,24 @@ html.dark .pvwrap, html.dark .pvwrap.one { background: #2a323d; }
 html.dark a { color: #8cc0ff; }
 html.dark #demoReset { background: #2a323d; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
 html.dark .toast { box-shadow: 0 2px 12px rgba(0,0,0,.6); }
+/* dark: filled buttons and toasts keep deep colours so white text stays readable; small notes on the coloured bars */
+html.dark .big.go, html.dark .toast.info { background: #1f63c4; }
+html.dark .big.ok, html.dark .toast.good, html.dark .list .item button.ok { background: #1c7a3a; color: #fff; }
+html.dark .big.bad, html.dark .toast.bad { background: #b3261e; }
+html.dark .orderbar span { color: #ff9a92; }
+html.dark .packbtn span { color: #f0c470; }
+html.dark .orderbar.labelbar { background: #16304f !important; color: #a9cfff !important; border-color: #2f5f9c; }
+html.dark .labelbar span { color: #8fbfff; }
+/* dark: hover colours (the light versions are in the hover block above) */
+@media (hover: hover) {
+  html.dark .tabs button:not(.on):hover { background: #232b36; color: var(--ink); }
+  html.dark .seg button:not(.on):hover { background: rgba(255,255,255,.08); color: var(--ink); }
+  html.dark .pvbtn:hover, html.dark .chip:not(.on):hover, html.dark .acts button:not(.on):hover, html.dark .moreacts button:hover, html.dark .stepper button:hover,
+  html.dark .list .item button:not(.ok):not(.no):hover, html.dark .mapedit .tools button:not(.on):hover, html.dark .mapedit .rkpanel button:hover,
+  html.dark .mapfloat.hint button:hover, html.dark .boxchip:not(.on):hover, html.dark .pickbox:not(.on):hover, html.dark .kindbtn:not(.on):hover,
+  html.dark .rs:not(.on):hover, html.dark .mcard:not(.on):hover, html.dark .photobtn:hover, html.dark .cam:hover, html.dark .packbtn:hover,
+  html.dark .ordrow:hover, html.dark .lk:hover, html.dark .eye:hover, html.dark .scanbtn:hover, html.dark .boxpick .bp:not(.on):hover {
+    background-color: #1c3350 !important; border-color: var(--accent); color: #cfe3ff !important; }
+  html.dark .list .item button.no:hover { background: #5a2520 !important; }
+}
 @media print { html.dark { color-scheme: light; --bg: #fff; --card: #fff; --ink: #14181f; --mute: #5f6672; --line: #dde0e5; } }
