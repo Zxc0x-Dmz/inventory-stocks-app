@@ -200,13 +200,58 @@
         return Math.abs(dx * c + dz * s2) <= (it.w || 1) / 2 + 0.25 && Math.abs(-dx * s2 + dz * c) <= (it.d || 1) / 2 + 0.25; });
     };
     var endCam = null;
+    /* ---- camera that never ends up inside a wall or rack, and keeps a clear view ----
+     * walls2: the room's outer walls as line pieces (the entrance is a gap).  A camera spot is good when it is
+     * not inside anything and the straight line to what it looks at does not cross a wall or a rack. */
+    var walls2 = (function () {
+      var m = o.map, dd = m.door || { x: 0, y: 0, w: 1 }, dw = Math.max(0.9, dd.w || 1);
+      var S = [[0, 0, m.W, 0], [m.W, 0, m.W, m.H], [m.W, m.H, 0, m.H], [0, m.H, 0, 0]], best = 1e9, ds = -1, out = [];
+      S.forEach(function (q, i) { var di = q[0] === q[2] ? Math.abs(dd.x - q[0]) : Math.abs(dd.y - q[1]); if (di < best) { best = di; ds = i; } });
+      S.forEach(function (q, i) {
+        if (i !== ds) { out.push(q); return; }
+        var ln = Math.hypot(q[2] - q[0], q[3] - q[1]), ux = (q[2] - q[0]) / ln, uy = (q[3] - q[1]) / ln, t = (dd.x - q[0]) * ux + (dd.y - q[1]) * uy;
+        out.push([q[0], q[1], q[0] + ux * (t - dw / 2), q[1] + uy * (t - dw / 2)]); out.push([q[0] + ux * (t + dw / 2), q[1] + uy * (t + dw / 2), q[2], q[3]]);
+      });
+      return out;
+    })();
+    var crosses = function (ax, az, bx, bz, w) {
+      var r = (bx - ax) * (w[3] - w[1]) - (bz - az) * (w[2] - w[0]); if (Math.abs(r) < 1e-9) return false;
+      var t = ((w[0] - ax) * (w[3] - w[1]) - (w[1] - az) * (w[2] - w[0])) / r, u = ((w[0] - ax) * (bz - az) - (w[1] - az) * (bx - ax)) / r;
+      return t > 0 && t < 1 && u > 0 && u < 1;
+    };
+    var inSolid = function (x, z, pad, skip) {
+      return solids.some(function (it) { if (it === skip) return false; var a = (it.a || 0) * Math.PI / 180, c = Math.cos(a), s2 = Math.sin(a), dx = x - it.x, dz = z - it.y;
+        return Math.abs(dx * c + dz * s2) <= (it.w || 1) / 2 + pad && Math.abs(-dx * s2 + dz * c) <= (it.d || 1) / 2 + pad; });
+    };
+    var nearWall = function (x, z) { return walls2.some(function (w) { var vx = w[2] - w[0], vz = w[3] - w[1], L2 = vx * vx + vz * vz || 1, t = Math.max(0, Math.min(1, ((x - w[0]) * vx + (z - w[1]) * vz) / L2)); return Math.hypot(x - w[0] - vx * t, z - w[1] - vz * t) < 0.3; }); };
+    var clearLine = function (ax, az, bx, bz, skip) {
+      for (var i = 0; i < walls2.length; i++) if (crosses(ax, az, bx, bz, walls2[i])) return false;
+      var n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.12));
+      for (var k = 1; k <= n; k++) if (inSolid(ax + (bx - ax) * k / n, az + (bz - az) * k / n, 0.1, skip)) return false;
+      return true;
+    };
+    var camOk = function (x, z, tx, tz, skip) { return !inSolid(x, z, 0.25) && !nearWall(x, z) && clearLine(tx, tz, x, z, skip); };
+    var HIGH = CEIL - 0.3;   // the high view: just under the ceiling, above every rack
+    /** While walking: as far back as the view stays clear; in tight spots, the high view looking down ahead of him. */
+    function chaseCam(pos, fwd) {
+      var dists = [3.2, 2.7, 2.2, 1.8, 1.4];
+      for (var k = 0; k < dists.length; k++) {
+        var d2 = dists[k], cx = pos.x - fwd.x * d2, cz = pos.z - fwd.z * d2;
+        if (camOk(cx, cz, pos.x, pos.z)) return { p: new T.Vector3(cx, 1.75 + (3.2 - d2) * 0.3, cz), look: pos.clone().addScaledVector(fwd, 5).setY(1.35), fov: (3.2 - d2) * 5 };
+      }
+      return { p: new T.Vector3(pos.x - fwd.x * 0.45, HIGH, pos.z - fwd.z * 0.45), look: pos.clone().addScaledVector(fwd, 2.4).setY(0.2), fov: 16, high: true };
+    }
+    /** At the box: behind him on the other side of his half step, with a clear line to the box; else the high view. */
     function endCamera(mp) {
-      var side = [Math.cos(faceYaw), -Math.sin(faceYaw)], tries = [[2.6, 1.0], [2.2, 0.9], [1.9, 0.7], [1.6, 0.6], [1.3, 0.5], [1.0, 0.4]];
+      var side = [Math.cos(faceYaw), -Math.sin(faceYaw)], tries = [[2.6, 1.0], [2.2, 0.9], [1.9, 0.7], [1.6, 0.6], [1.3, 0.5]];
+      var fx = binPos.x + nrm[0] * 0.35, fz = binPos.z + nrm[1] * 0.35;   // just in front of the box
       for (var k = 0; k < tries.length; k++) {   // the camera goes to the opposite side of his half step
         var cx = mp.x + nrm[0] * tries[k][0] - side[0] * tries[k][1], cz = mp.z + nrm[1] * tries[k][0] - side[1] * tries[k][1];
-        if (!inside(cx, cz)) { var tight = Math.max(0, 2.6 - tries[k][0]); state.endFov = 58 + tight * 12; return new T.Vector3(cx, 1.85 + tight * 0.45, cz); }
+        if (!inside(cx, cz) && camOk(cx, cz, fx, fz, o.rack)) { var tight = Math.max(0, 2.6 - tries[k][0]); state.endFov = 58 + tight * 12; return new T.Vector3(cx, 1.85 + tight * 0.45, cz); }
       }
-      state.endFov = 80; return new T.Vector3(mp.x + nrm[0] * 0.9, 2.7, mp.z + nrm[1] * 0.9);
+      // tight: from high above the aisle, looking down at the box
+      var back = 1.1; while (back > 0.4 && (inSolid(mp.x + nrm[0] * back, mp.z + nrm[1] * back, 0.05) || nearWall(mp.x + nrm[0] * back, mp.z + nrm[1] * back))) back -= 0.15;
+      state.endFov = 78; return new T.Vector3(mp.x + nrm[0] * back, HIGH, mp.z + nrm[1] * back);
     }
     var binW = o.rack && built.target ? world(o.rack, built.target.local[0], 0) : [P[P.length - 1].x, P[P.length - 1].z];
     var binPos = new T.Vector3(binW[0], built.target ? built.target.local[1] : 1, binW[1]);
@@ -216,7 +261,7 @@
     function start() {
       phase = 'door'; t0 = performance.now(); dist = 0; swing = 0; endCam = null; state.endFov = 0; fit();
       var a0 = at(0); yaw = Math.atan2(a0.dir.x, a0.dir.z); F.man.position.copy(a0.pos);
-      camPos.copy(a0.pos).add(new T.Vector3(-Math.sin(yaw) * 3.4, 1.75, -Math.cos(yaw) * 3.4)); camLook.copy(a0.pos).add(new T.Vector3(Math.sin(yaw) * 5, 1.35, Math.cos(yaw) * 5));
+      var c0 = chaseCam(a0.pos, new T.Vector3(Math.sin(yaw), 0, Math.cos(yaw))); camPos.copy(c0.p); camLook.copy(c0.look); state.walkFov = c0.fov;
       if (glowMesh) glowMesh.visible = false; tag.visible = false; spot.intensity = 0;
       say('Start at the <b>entrance door</b>.');
     }
@@ -230,8 +275,9 @@
         var want = Math.atan2(a.dir.x, a.dir.z), dy = Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw)); yaw += dy * Math.min(1, dt * 7);
         swing += dt * speed * 3.4;
         var fwd = new T.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-        camPos.lerp(F.man.position.clone().addScaledVector(fwd, -3.2).add(new T.Vector3(0, 1.75, 0)), Math.min(1, dt * 3));
-        camLook.lerp(F.man.position.clone().addScaledVector(fwd, 5).add(new T.Vector3(0, 1.35, 0)), Math.min(1, dt * 3.5));
+        var cc = chaseCam(F.man.position, fwd);
+        camPos.lerp(cc.p, Math.min(1, dt * (cc.high ? 2.2 : 3))); camLook.lerp(cc.look, Math.min(1, dt * 3.5));
+        state.walkFov = cc.fov;
         if (dist >= len) { phase = 'turn'; t0 = now; say('This is <b>Rack ' + esc(o.rackLabel) + '</b>. Face it.'); }
       } else if (phase === 'turn' || phase === 'there') {
         var dy2 = Math.atan2(Math.sin(faceYaw - yaw), Math.cos(faceYaw - yaw)); yaw += dy2 * Math.min(1, dt * 5); swing *= 0.85;
@@ -243,7 +289,7 @@
         }
         if (state.stepTo) { F.man.position.lerp(state.stepTo, Math.min(1, dt * 3)); swing += dt * 2; }
         camPos.lerp(endCam, Math.min(1, dt * 2.4));
-        var wantFov = Math.max(box.clientWidth < 520 ? 68 : 58, state.endFov || 0);
+        var wantFov = Math.max(box.clientWidth < 520 ? 68 : 58, state.endFov || 0);   // (walking fov is handled below)
         if (Math.abs(camera.fov - wantFov) > 0.3) { camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 2.4); camera.updateProjectionMatrix(); }
         camLook.lerp(binPos.clone().setY(Math.max(0.9, binPos.y)), Math.min(1, dt * 3));
         if (phase === 'turn' && now - t0 > 1500) {
@@ -266,6 +312,10 @@
       } else armF(F.AR, ph + Math.PI);
       F.man.position.y = wk ? Math.abs(Math.cos(swing)) * 0.03 - 0.015 : 0;
       F.man.rotation.y = yaw; F.shadow.position.set(F.man.position.x, 0.006, F.man.position.z);
+      if (phase === 'walk' || phase === 'door') {
+        var baseF = box.clientWidth < 520 ? 68 : 58, wf = baseF + (state.walkFov || 0);
+        if (Math.abs(camera.fov - wf) > 0.3) { camera.fov += (wf - camera.fov) * Math.min(1, dt * 2); camera.updateProjectionMatrix(); }
+      }
       camera.position.copy(camPos); camera.lookAt(camLook);
       renderer.render(scene, camera);
       state.raf = requestAnimationFrame(tick);
