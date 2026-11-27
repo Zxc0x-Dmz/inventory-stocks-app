@@ -628,3 +628,6 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 
 #mapTop { position: relative; }
 #mapInline { font-size: 16px; font-weight: 800; text-align: center; border: 2.5px solid #e6007e; border-radius: 8px; padding: 6px 8px; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+
+.lab .lrack { font-size: 8.5pt; font-weight: 700; letter-spacing: .02em; color: #14181f; margin-top: 1mm; line-height: 1.15; }
+.lab .lrack b { font-size: 10pt; }

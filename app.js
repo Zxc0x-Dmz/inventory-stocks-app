@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.45 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.46 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2690,10 +2690,12 @@
     return { loc: k, type: any[0].type, rows: [], empty: true, model: (mk && CODE_TO_MODEL[mk[1]]) || 'UNI', printed: any[0].label_printed || '' };
   }
   function labelNotPrinted(b) { return b.empty ? !b.printed : b.rows.some(function (r) { return !r.label_printed; }); }
+  /** Rack place printed on a box sticker ("RACK R11 · SHELF 2 · BOX 3"), empty when the box has no place yet. */
+  function labelPlace(loc) { var pl = placeOf(loc); return pl ? '<div class="lrack">📍 RACK <b>' + esc(rackNoOf(pl.rack)) + '</b> · SHELF ' + pl.shelf + ' · BOX ' + pl.slot + '</div>' : ''; }
   function emptyLabel(b) {
     var m = MODELS[b.model] || { name: '' }, tote = b.type === 'TOTE';
     return '<div class="lab' + (tote ? ' tote' : '') + ' c-' + b.model + '"><div class="lh"><span>' + (tote ? 'WHITE BOX · ' : '') + esc(m.name || '') + '</span><span>' + esc(b.loc) + '</span></div>' +
-      '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt"><div><div class="lname">Empty box</div><div class="lsku">' + esc(b.loc) + '</div></div>' +
+      '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt"><div><div class="lname">Empty box</div><div class="lsku">' + esc(b.loc) + '</div>' + labelPlace(b.loc) + '</div>' +
       (tote ? '<div><div class="tmeta">EXACT QUANTITY</div><div class="tq">____</div></div><div class="sealbox">Seal broken on ____/____/______ by __________</div>' : '') + '</div></div></div>';
   }
   function labelPool() {
@@ -2825,7 +2827,7 @@
       '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt">' +
       (mixed ? '<div class="lname lmix">' + b.rows.map(function (l) { return esc(P[l.sku].name); }).join(' · ') + '</div>'
              : '<div class="lsku">' + esc(codeOf(p)) + '</div><div class="lname">' + esc(p.name) + '</div>') +
-      '<div class="lloc">' + esc(b.loc) + '</div></div></div></div>';
+      '<div class="lloc">' + esc(b.loc) + '</div>' + labelPlace(b.loc) + '</div></div></div>';
   }
   function toteLabel(b) {
     if (b.empty) return emptyLabel(b);
@@ -2834,10 +2836,10 @@
       return '<div class="lab tote c-' + p.model + '"><div class="lh"><span>MIXED BOX · ' + esc(m.name) + '</span><span>' + esc(b.loc) + '</span></div>' +
         '<div class="lb"><div class="lq">' + qrSvg(b.loc) + '</div><div class="lt"><div class="lmixlist">' + b.rows.map(function (x) {
           return '<div><b>' + num(x.qty) + '</b> × ' + esc(P[x.sku].name) + ' <span>' + esc(codeOf(P[x.sku])) + '</span></div>';
-        }).join('') + '</div><div class="tmeta">Packed ' + esc(today()) + '</div></div></div></div>';
+        }).join('') + '</div>' + labelPlace(b.loc) + '<div class="tmeta">Packed ' + esc(today()) + '</div></div></div></div>';
     }
     return '<div class="lab tote c-' + p.model + '"><div class="lh"><span>SEALED BULK · ' + esc(m.name) + '</span><span>' + esc(l.loc) + '</span></div>' +
-      '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div><div class="lname">' + esc(p.name) + '</div><div class="lsku">' + esc(codeOf(p)) + '</div></div>' +
+      '<div class="lb"><div class="lq">' + qrSvg(l.loc) + '</div><div class="lt"><div><div class="lname">' + esc(p.name) + '</div><div class="lsku">' + esc(codeOf(p)) + '</div>' + labelPlace(l.loc) + '</div>' +
       '<div><div class="tmeta">EXACT QUANTITY</div><div class="tq">' + num(l.qty) + '</div><div class="tmeta">Sealed ' + esc(l.sealed_date || today()) + (l.notes ? ' · ' + esc(l.notes) : '') + '</div></div>' +
       '<div class="sealbox">Seal broken on ____/____/______ by __________</div></div></div></div>';
   }
