@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.49 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.50 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2667,8 +2667,8 @@
   }
   function previewRack(loc) {
     var r = RACKS.filter(function (x) { return x.loc === loc; })[0]; if (!r) return;
-    modal('<h3 class="formtitle">Rack sign ' + esc(rackNoOf(loc)) + '</h3><div class="pvwrap one"><div class="pvone" style="width:155mm;height:55mm">' + rackSign(r) + '</div></div>' +
-      '<p class="hint">155 × 55 mm, 5 per A4 sheet, shown bigger. Change the model (colour) in the list.</p>' +
+    modal('<h3 class="formtitle">Rack sign ' + esc(rackNoOf(loc)) + '</h3><div class="pvwrap one"><div class="pvone" style="width:155mm;height:51mm">' + rackSign(r) + '</div></div>' +
+      '<p class="hint">155 × 51 mm, 5 per A4 sheet with 5 mm cutting space, shown bigger. Change the model (colour) in the list.</p>' +
       '<label class="lbl">How many stickers of ' + esc(rackNoOf(loc)) + '?</label><div class="stepper"><button type="button" data-step="-1">−</button><input id="prCopies" type="number" inputmode="numeric" min="1" max="50" value="' + rackCopies(loc) + '"><button type="button" data-step="1">+</button></div>' +
       '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big go" data-x="stay" id="prPrint">🖨 Print</button></div>');
     var prN = function () { return Math.max(1, Math.min(50, Math.round(num($('prCopies').value)) || 1)); };
@@ -2834,7 +2834,7 @@
   function rackPages(signs) {
     var sh = '';
     for (var si = 0; si < signs.length; si += 5) {
-      sh += '<div class="page" style="padding:11mm 27.5mm;grid-template-columns:155mm;grid-template-rows:repeat(5,55mm)">' + signs.slice(si, si + 5).map(rackSign).join('') + '</div>';
+      sh += '<div class="page" style="padding:11mm 27.5mm;grid-template-columns:155mm;grid-template-rows:repeat(5,51mm);row-gap:5mm">' + signs.slice(si, si + 5).map(rackSign).join('') + '</div>';
     }
     return sh;
   }
