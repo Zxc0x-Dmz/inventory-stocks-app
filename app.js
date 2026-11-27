@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.64 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.65 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2614,8 +2614,8 @@
     try { p = row && JSON.parse(row.value); } catch (e) { p = null; }
     p = p || {};
     return {
-      cycleEvery: CYCLE_EVERY[p.cycleEvery] ? p.cycleEvery : '1m', cycleStart: isoDate(p.cycleStart) || '2026-01-01',
-      fullEvery: FULL_EVERY[p.fullEvery] ? num(p.fullEvery) : 6, fullStart: isoDate(p.fullStart) || '2026-01-01',
+      cycleEvery: CYCLE_EVERY[p.cycleEvery] ? p.cycleEvery : '1m', cycleStart: isoDate(p.cycleStart) || '2027-01-04',
+      fullEvery: FULL_EVERY[p.fullEvery] ? num(p.fullEvery) : 6, fullStart: isoDate(p.fullStart) || '2027-06-01',
       warnDays: num(p.warnDays) >= 1 && num(p.warnDays) <= 30 ? num(p.warnDays) : 7, saved: !!row, by: row && row.by || ''
     };
   }
