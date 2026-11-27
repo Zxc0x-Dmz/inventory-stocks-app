@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.47 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.49 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -1389,6 +1389,10 @@
    * the front with the box lit up, and writes the directions. */
   var MAP_COLORS = { NB3: '#f57c00', OK4: '#1565c0', NB2: '#1f9d55', UNI: '#8a929e', '': '#5f6672' };
   var MAP_TAG = { NB3: 'C1', OK4: '400C', NB2: 'A200', UNI: 'Universal' };
+  /** A rack can hold more than one model: its model is then "NB3+OK4" (C1 + 400C) and so on. */
+  function mkParts(mk) { return String(mk || '').split('+').filter(function (x) { return MAP_TAG[x]; }); }
+  function mkTag(mk) { return mkParts(mk).map(function (x) { return MAP_TAG[x]; }).join(' + '); }
+  function mkCol(mk) { var a = mkParts(mk); return MAP_COLORS[a[0]] || MAP_COLORS['']; }
   /* Freeform map (v2): sizes in metres, any angle.  Every object has a centre x,y, length w (along its own x),
    * depth d and angle a (degrees, clockwise).  The front of a rack (where you stand) and the inside of the
    * entrance are its own +y side.  W,H = room size in metres; w,h = the same in half metres (kept for the backend). */
@@ -1620,8 +1624,9 @@
   function itemSvg(it, kind, o) {
     var S = MS, w = it.w * S, d = it.d * S, many = o.multi && o.multi.length > 1, sel = o.sel === o.key && !many, inGroup = many && o.multi.indexOf(o.key) >= 0, body;
     if (kind === 'rack') {
-      var col = MAP_COLORS[rackModelOf(it)] || MAP_COLORS[''], lit = o.hi === it.id;
-      body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="' + col + '" opacity="' + (o.hi && !lit ? .35 : 1) + '"' + (lit ? ' stroke="#ffd400" stroke-width="5"' : '') + '/>' +
+      var mkA = mkParts(rackModelOf(it)), col = mkCol(rackModelOf(it)), lit = o.hi === it.id, op = (o.hi && !lit ? .35 : 1);
+      body = '<rect x="' + (-w / 2) + '" y="' + (-d / 2) + '" width="' + w + '" height="' + d + '" rx="3" fill="' + col + '" opacity="' + op + '"' + (lit ? ' stroke="#ffd400" stroke-width="5"' : '') + '/>' +
+        (mkA.length > 1 ? mkA.slice(1).map(function (x, i) { var bw = w / mkA.length; return '<rect x="' + (-w / 2 + bw * (i + 1)) + '" y="' + (-d / 2) + '" width="' + bw + '" height="' + d + '" fill="' + MAP_COLORS[x] + '" opacity="' + op + '"/>'; }).join('') : '') +
         '<line x1="' + (-w / 2) + '" y1="' + (d / 2) + '" x2="' + (w / 2) + '" y2="' + (d / 2) + '" stroke="#fff" stroke-width="3" opacity=".95"/>' +
         '<text x="0" y="' + Math.min(5, d / 4) + '" text-anchor="middle" font-size="' + Math.max(9, Math.min(14, d * .55)) + '" font-weight="800" fill="#fff">' + esc(rackNo(it)) + (it.name ? '<tspan font-size="' + Math.max(8, Math.min(11, d * .4)) + '" font-weight="600"> · ' + esc(it.name) + '</tspan>' : '') + '</text>';
     } else if (kind === 'door') {
@@ -1711,7 +1716,7 @@
     delete occ.__seen; return occ;
   }
   function rackSvg(r, pl, label, occ) {
-    var RR = rackRows(r), ox = RK.ox, iw = RK.iw, W = ox + iw + 20, H = RR.bottom + 44, col = MAP_COLORS[rackModelOf(r)] || MAP_COLORS[''], out = '', target = null;
+    var RR = rackRows(r), ox = RK.ox, iw = RK.iw, W = ox + iw + 20, H = RR.bottom + 44, col = mkCol(rackModelOf(r)), out = '', target = null;
     out += '<rect x="' + (ox - 6) + '" y="' + (RK.oy - 6) + '" width="' + (iw + 12) + '" height="' + (RR.bottom - RK.oy + 12) + '" rx="4" fill="none" stroke="' + col + '" stroke-width="6"/>';
     RR.rows.forEach(function (q) {
       var cw = iw / q.n, tote = q.t === 'TOTE';
@@ -1800,12 +1805,12 @@
       return;
     }
     var pl = placeOf(l.loc), r = rackOn(m, pl.rack), mk = rackModelOf(r), path = walkPath(m, frontPoint(r, pl.slot, pl.shelf));
-    var col = MAP_COLORS[mk] || MAP_COLORS[''], lay = layersOf(r)[pl.shelf - 1], kindName = lay ? (lay.t === 'TOTE' ? 'white box' : 'blue bin') : '', kindPlural = lay ? (lay.t === 'TOTE' ? 'white boxes' : 'blue bins') : '';
+    var col = mkParts(mk).length > 1 ? 'linear-gradient(90deg,' + mkParts(mk).map(function (x, i, a) { return MAP_COLORS[x] + ' ' + (i * 100 / a.length) + '% ' + ((i + 1) * 100 / a.length) + '%'; }).join(',') + ')' : mkCol(mk), lay = layersOf(r)[pl.shelf - 1], kindName = lay ? (lay.t === 'TOTE' ? 'white box' : 'blue bin') : '', kindPlural = lay ? (lay.t === 'TOTE' ? 'white boxes' : 'blue bins') : '';
     $('mapTop').innerHTML = topSvg(m, { hi: r.id, path: path });
-    $('rackCard').style.display = ''; $('rackCap').textContent = 'Rack ' + rackNo(r) + ' from the front' + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '');
+    $('rackCard').style.display = ''; $('rackCap').textContent = 'Rack ' + rackNo(r) + ' from the front' + (mkTag(mk) ? ' · ' + mkTag(mk) : '');
     $('mapRack').innerHTML = rackSvg(r, pl, l.loc, rackOcc(r.id, l.loc));
     $('mapSteps').innerHTML = '<div class="steps"><b>' + esc(p.name) + '</b> <span class="mono">' + esc(codeOf(p)) + '</span>' + picker +
-      '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + esc(rackNo(r)) + (MAP_TAG[mk] ? ' · ' + MAP_TAG[mk] : '') + (r.name ? ' · ' + esc(r.name) : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
+      '<ol><li>Start at the green <b>🚪 ENTRANCE</b> and follow the yellow line to <b class="rk" style="background:' + col + '">Rack ' + esc(rackNo(r)) + (mkTag(mk) ? ' · ' + mkTag(mk) : '') + (r.name ? ' · ' + esc(r.name) : '') + '</b>.' + (path ? '' : ' <i>(no free walkway drawn to it on the map)</i>') + '</li>' +
       '<li>Stand in front of the rack and face it.</li>' +
       '<li>Count the shelves from the bottom: <b>' + ordinal(pl.shelf) + ' shelf</b>' + (kindName ? ' (' + kindPlural + ')' : '') + '.</li>' +
       '<li>Count the ' + (kindPlural || 'boxes') + ' from your left: <b>' + ordinal(pl.slot) + ' ' + (kindName || 'box') + '</b>, label <b class="mono">' + esc(l.loc) + '</b>.</li>' +
@@ -1844,7 +1849,7 @@
       var occ = rackOcc(rk, me), there = occ[sh + '/' + sl];
       var parts = inBox(me).map(function (x) { return P[x.sku].name + ' (' + num(x.qty) + ')'; });
       modal('<h3 class="formtitle">📍 Where is ' + esc(me) + '?</h3>' + (parts.length ? '<p class="hint" style="margin-top:-4px">' + esc(parts.join(' · ')) + '</p>' : '') +
-        '<label class="lbl">Rack</label><div class="rsrow">' + racks.map(function (id) { var rr = rackOn(m, id); return '<button type="button" class="rs' + (id === rk ? ' on' : '') + '" data-prk="' + id + '" style="' + (rr ? 'border-color:' + (MAP_COLORS[rackModelOf(rr)] || '') : '') + '">' + esc(rackNo(rr) || id) + '</button>'; }).join('') + '</div>' +
+        '<label class="lbl">Rack</label><div class="rsrow">' + racks.map(function (id) { var rr = rackOn(m, id); return '<button type="button" class="rs' + (id === rk ? ' on' : '') + '" data-prk="' + id + '" style="' + (rr ? 'border-color:' + mkCol(rackModelOf(rr)) : '') + '">' + esc(rackNo(rr) || id) + '</button>'; }).join('') + '</div>' +
         '<p class="hint">Tap the shelf and box in the rack below (shelf 1 is the bottom, boxes counted from the left).</p><div id="placePick">' + rackSvg(r, { shelf: sh, slot: sl }, normLoc_(loc)) + '</div>' +
         '<p class="hint" id="placeTxt">' + esc(placeText({ rack: rk, shelf: sh, slot: sl })) + '</p>' +
         (there ? '<div class="warn">That spot already has <b class="mono">' + esc(there) + '</b>. Saving <b>swaps</b> them: ' + esc(there) + (was ? ' goes to ' + esc(placeText(was)) : ' gets no place (set it later)') + '.</div>' : '<p class="hint">Grey boxes already have a box in them. Pick a taken one to swap the two boxes.</p>') +
@@ -1889,8 +1894,8 @@
     var racks = m.racks.slice().sort(function (a, b) { return a.id.localeCompare(b.id); });
     rows.push('<div class="lgrp">Racks (' + racks.length + ')</div>' + racks.map(function (r) {
       var L = layersOf(r), white = L.filter(function (x) { return x.t === 'TOTE'; }).length;
-      return row('r' + r.id, r, '<i class="sw" style="background:' + (MAP_COLORS[rackModelOf(r)] || MAP_COLORS['']) + '"></i>', r.id + (r.name ? ' · ' + esc(r.name) : ''),
-        L.length + ' shelves' + (white ? ' (' + white + ' white)' : '') + (MAP_TAG[rackModelOf(r)] ? ' · ' + MAP_TAG[rackModelOf(r)] : ''), true);
+      return row('r' + r.id, r, '<i class="sw" style="background:' + mkCol(rackModelOf(r)) + '"></i>', r.id + (r.name ? ' · ' + esc(r.name) : ''),
+        L.length + ' shelves' + (white ? ' (' + white + ' white)' : '') + (mkTag(rackModelOf(r)) ? ' · ' + mkTag(rackModelOf(r)) : ''), true);
     }).join(''));
     Object.keys(THINGS).forEach(function (k) {
       var list = m.items.map(function (it, n) { return { it: it, n: n }; }).filter(function (x) { return x.it.kind === k; });
@@ -2662,10 +2667,14 @@
   }
   function previewRack(loc) {
     var r = RACKS.filter(function (x) { return x.loc === loc; })[0]; if (!r) return;
-    modal('<h3 class="formtitle">Rack sign ' + esc(loc) + '</h3><div class="pvwrap one"><div class="pvone" style="width:155mm;height:55mm">' + rackSign(r) + '</div></div>' +
+    modal('<h3 class="formtitle">Rack sign ' + esc(rackNoOf(loc)) + '</h3><div class="pvwrap one"><div class="pvone" style="width:155mm;height:55mm">' + rackSign(r) + '</div></div>' +
       '<p class="hint">155 × 55 mm, 5 per A4 sheet, shown bigger. Change the model (colour) in the list.</p>' +
-      '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big go" data-x="stay" id="prPrint">Print this one</button></div>');
-    $('prPrint').onclick = function () { closeModal(); lbSel = {}; lbSel[loc] = true; $('labelPrint').onclick(); };
+      '<label class="lbl">How many stickers of ' + esc(rackNoOf(loc)) + '?</label><div class="stepper"><button type="button" data-step="-1">−</button><input id="prCopies" type="number" inputmode="numeric" min="1" max="50" value="' + rackCopies(loc) + '"><button type="button" data-step="1">+</button></div>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big go" data-x="stay" id="prPrint">🖨 Print</button></div>');
+    var prN = function () { return Math.max(1, Math.min(50, Math.round(num($('prCopies').value)) || 1)); };
+    var prUpd = function () { $('prPrint').textContent = '🖨 Print ' + prN() + ' sticker' + (prN() > 1 ? 's' : ''); };
+    $('prCopies').addEventListener('input', prUpd); qsa('#modalBody .stepper button').forEach(function (b) { b.addEventListener('click', function () { setTimeout(prUpd, 0); }); }); prUpd();
+    $('prPrint').onclick = function () { lbCopies[loc] = prN(); save('inv.rackCopies', lbCopies); closeModal(); lbSel = {}; lbSel[loc] = true; $('labelPrint').onclick(); };
     var wrap = document.querySelector('#modalBody .pvwrap'), box = document.querySelector('#modalBody .pvone');
     setTimeout(function () { var k = Math.min(3, (wrap.clientWidth - 6) / box.offsetWidth); box.style.transform = 'scale(' + k + ')'; wrap.style.height = Math.ceil(box.offsetHeight * k + 6) + 'px'; }, 0);
   }
@@ -2741,13 +2750,13 @@
     if (lbMode === 'RACK') {
       $('labelList').innerHTML = pool.map(function (r) {
         var n = snap.locations.filter(function (l) { return normLoc_(l.loc).indexOf(r.loc + '-') === 0; }).length;
-        return '<label class="item rk-' + (rackModel[r.loc] || 'none') + '"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + esc(rackNoOf(r.loc)) + '</span>' + (rackNoOf(r.loc) !== r.loc ? ' · code ' + r.loc : ' · Rack ' + Number(r.loc.slice(1))) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><label class="rkcp" title="How many stickers of this rack">× <input type="number" min="1" max="20" inputmode="numeric" data-cp="' + r.loc + '" value="' + rackCopies(r.loc) + '"></label><select class="rksel" data-rm="' + r.loc + '">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((rackModel[r.loc] || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
+        return '<label class="item rk-' + (mkParts(rackModel[r.loc])[0] || 'none') + '"><input type="checkbox" style="width:auto" data-lb="' + r.loc + '"' + (lbSel[r.loc] ? ' checked' : '') + '><div class="grow"><div class="t1"><span class="mono">' + esc(rackNoOf(r.loc)) + '</span>' + (rackNoOf(r.loc) !== r.loc ? ' · code ' + r.loc : ' · Rack ' + Number(r.loc.slice(1))) + '</div><div class="t2">' + n + ' bins set up · bin labels look like ' + r.loc + '-S2-B05</div></div><label class="rkcp" title="How many stickers of this rack">× <input type="number" min="1" max="50" inputmode="numeric" data-cp="' + r.loc + '" value="' + rackCopies(r.loc) + '"></label><select class="rksel" data-rm="' + r.loc + '">' + RACK_MODELS.map(function (x) { return '<option value="' + x[0] + '"' + ((rackModel[r.loc] || '') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select><button type="button" class="pvbtn" data-pr="' + r.loc + '">👁 Preview</button></label>';
       }).join('');
       qsa('[data-lb]', $('labelList')).forEach(function (c) { c.onchange = function () { lbSel[c.dataset.lb] = c.checked; $('labelPrint').textContent = 'Print selected signs (' + Object.keys(lbSel).filter(function (k) { return lbSel[k]; }).length + ')'; }; });
       qsa('#labelList [data-pr]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); previewRack(b.dataset.pr); }; });
       qsa('#labelList [data-cp]').forEach(function (inp) {
         inp.onclick = function (e) { e.stopPropagation(); };
-        inp.oninput = function () { var v = Math.max(1, Math.min(20, Math.round(num(inp.value)) || 1)); lbCopies[inp.dataset.cp] = v; save('inv.rackCopies', lbCopies); };
+        inp.oninput = function () { var v = Math.max(1, Math.min(50, Math.round(num(inp.value)) || 1)); lbCopies[inp.dataset.cp] = v; save('inv.rackCopies', lbCopies); };
       });
       qsa('#labelList [data-rm]').forEach(function (sel) {
         sel.onclick = function (e) { e.stopPropagation(); };
@@ -2811,9 +2820,14 @@
   /* Rack signs: 155 x 55 mm, 5 per A4 portrait.  Each rack can be given a model; the sign then has that model's
    * colour (C1 orange, 400C blue, A200 green, Universal grey).  The choice is saved on this device. */
   var rackModel = load('inv.rackModel', {});
-  var RACK_MODELS = [['', 'No model'], ['NB3', 'C1'], ['OK4', '400C'], ['NB2', 'A200'], ['UNI', 'Universal']];
+  var RACK_MODELS = [['', 'No model'], ['NB3', 'C1'], ['OK4', '400C'], ['NB2', 'A200'], ['UNI', 'Universal'], ['NB3+OK4', 'Mixed C1 + 400C'], ['NB3+NB2', 'Mixed C1 + A200'], ['OK4+NB2', 'Mixed 400C + A200'], ['NB3+OK4+NB2', 'Mixed C1 + 400C + A200']];
   function rackSign(r) {
-    var mr = typeof mapData === 'function' ? rackOn(mapData(), r.loc) : null, m = rackModel[r.loc] || (mr && mr.model) || '', tag = { NB3: 'C1', OK4: '400C', NB2: 'A200', UNI: 'Universal' }[m] || '';
+    var mr = typeof mapData === 'function' ? rackOn(mapData(), r.loc) : null, m = rackModel[r.loc] || (mr && mr.model) || '', a = mkParts(m), tag = { NB3: 'C1', OK4: '400C', NB2: 'A200', UNI: 'Universal' }[m] || '';
+    if (a.length > 1) {   // mixed rack: colour bands of each model, all models named
+      var bg = 'linear-gradient(90deg,' + a.map(function (x, i) { return MAP_COLORS[x] + ' ' + (i * 100 / a.length) + '% ' + ((i + 1) * 100 / a.length) + '%'; }).join(',') + ')';
+      return '<div class="lab racksign rk-mix" style="background:' + bg + ';border-color:#14181f"><div class="rs-k">RACK</div><div class="rs-n">' + esc(rackNo(mr) || r.loc) + '</div>' +
+        '<div class="rs-m"><b>MIXED</b><span>' + esc(a.map(function (x) { return MAP_TAG[x]; }).join(' + ')) + '</span></div></div>';
+    }
     return '<div class="lab racksign rk-' + (m || 'none') + '"><div class="rs-k">RACK</div><div class="rs-n">' + esc(rackNo(mr) || r.loc) + '</div>' +
       (tag ? '<div class="rs-m"><b>' + tag + '</b><span>' + esc((MODELS[m] || {}).name || '') + '</span></div>' : '') + '</div>';
   }
