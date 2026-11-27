@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.62 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.63 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -49,8 +49,12 @@
     var t = $('toast'); t.textContent = msg; t.className = 'toast ' + (kind || '');
     clearTimeout(toastT); toastT = setTimeout(function () { t.className = 'toast hidden'; }, kind === 'bad' ? 5000 : 2600);
   }
+  /* per-device preferences: dark mode, scan beep */
+  var prefs = load('inv.prefs', {});
+  function applyPrefs() { document.documentElement.classList.toggle('dark', !!prefs.dark); var mc = document.querySelector('meta[name="theme-color"]'); if (mc) mc.setAttribute('content', prefs.dark ? '#0a0d11' : '#14181f'); }
+  applyPrefs();
   function beep(ok) {
-    try {
+    if (prefs.sound !== false) try {
       var a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
       o.frequency.value = ok === false ? 220 : 1320; o.connect(g); g.connect(a.destination); g.gain.value = .08;
       o.start(); o.stop(a.currentTime + (ok === false ? .35 : .09));
@@ -361,6 +365,7 @@
     el.className = 'status ' + cls; $('statusText').textContent = txt;
     $('meBtn').textContent = signedIn() ? '👤 ' + cfg.user + (isSup() ? ' ★' : '') : '👤 Sign in';
     document.body.classList.toggle('sup', isSup());
+    document.body.classList.toggle('countOn', countOpen());
     var tl = $('tabs').querySelector('[data-tab="take"] b'), sl = $('tabs').querySelector('[data-tab="setup"] b');
     tl.textContent = 'Parts'; sl.textContent = isSup() ? 'Setup' : 'Settings';
     if (!tabAllowed(current)) showTab('take');
@@ -369,7 +374,7 @@
   /* ---------------- tabs ---------------- */
   var current = 'take';
   /** Mechanics get Parts and Settings. */
-  function tabAllowed(t) { return isSup() || t === 'take' || t === 'boxes' || t === 'map' || t === 'setup'; }
+  function tabAllowed(t) { return isSup() || t === 'take' || t === 'boxes' || t === 'map' || t === 'setup' || (t === 'count' && countOpen()); }
   var tabTrail = [];   // tabs visited before this one, for the phone's Back button
   function showTab(t, fromBack) {
     if (!tabAllowed(t)) t = 'take';
@@ -385,6 +390,7 @@
 
   function renderAll() {
     setStatus();
+    renderCountAlert();
     if (current === 'take') renderTake();
     if (current === 'restock') renderRestock();
     if (current === 'stock') renderStock();
@@ -2586,13 +2592,133 @@
     }).catch(function (e) { var box = $('histBox'); if (box) box.textContent = 'Could not load history: ' + e.message; });
   }
 
+  /* ---------------- COUNT PLAN: blue bin cycle count + full count (blue bins + white boxes) ----------------
+   * Settings 'countPlan' = {cycleEvery: '1m', cycleStart: 'YYYY-MM-DD', fullEvery: 6, fullStart: 'YYYY-MM-DD', warnDays: 7}.
+   * Each count repeats from its start date (start, start + every, ...).  A round opens warnDays before its date (the
+   * warning) and is finished when every box in it has been counted since it opened.  Nothing has to be ticked off. */
+  var CYCLE_EVERY = { '1w': [7, 'd', 'every week'], '2w': [14, 'd', 'every 2 weeks'], '1m': [1, 'm', 'every month'], '2m': [2, 'm', 'every 2 months'], '3m': [3, 'm', 'every 3 months'] };
+  var FULL_EVERY = { 3: 'every 3 months', 6: 'every 6 months', 12: 'every year' };
+  function isoDate(d) { return /^\d{4}-\d\d-\d\d$/.test(d || '') && !isNaN(new Date(d + 'T00:00:00Z')) ? d : ''; }
+  function isoAdd(d, n, unit) {
+    var t = new Date(d + 'T00:00:00Z');
+    if (unit === 'd') t.setUTCDate(t.getUTCDate() + n);
+    else { var day = t.getUTCDate(); t.setUTCDate(1); t.setUTCMonth(t.getUTCMonth() + n); t.setUTCDate(Math.min(day, new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate())); }
+    return t.toISOString().slice(0, 10);
+  }
+  function dayDiff(a, b) { return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5); }   // days from a to b
+  var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function fmtDay(d) { if (!isoDate(d)) return d || ''; var t = new Date(d + 'T00:00:00Z'); return WD[t.getUTCDay()] + ' ' + t.getUTCDate() + ' ' + MON[t.getUTCMonth()] + (d.slice(0, 4) !== today().slice(0, 4) ? ' ' + d.slice(0, 4) : ''); }
+  function planWhen(d) { var n = dayDiff(today(), d); return n === 0 ? 'today' : n === 1 ? 'tomorrow' : n === -1 ? 'yesterday' : n > 0 ? 'in ' + n + ' days' : -n + ' days ago'; }
+  function countPlan() {
+    var row = (snap.settings || []).filter(function (r) { return r.key === 'countPlan'; })[0], p = null;
+    try { p = row && JSON.parse(row.value); } catch (e) { p = null; }
+    p = p || {};
+    return {
+      cycleEvery: CYCLE_EVERY[p.cycleEvery] ? p.cycleEvery : '1m', cycleStart: isoDate(p.cycleStart) || '2026-01-01',
+      fullEvery: FULL_EVERY[p.fullEvery] ? num(p.fullEvery) : 6, fullStart: isoDate(p.fullStart) || '2026-01-01',
+      warnDays: num(p.warnDays) >= 1 && num(p.warnDays) <= 30 ? num(p.warnDays) : 7, saved: !!row, by: row && row.by || ''
+    };
+  }
+  var roundMemo = { k: '', v: {} };
+  /** The current round of 'cycle' or 'full': {key, name, unit, date, open, next, state: idle|soon|today|late|done, boxes, left}. */
+  function planRound(key) {
+    var memoKey = snap.version + '|' + today() + '|' + ((snap.settings || []).filter(function (r) { return r.key === 'countPlan'; })[0] || {}).value;
+    if (roundMemo.k !== memoKey) roundMemo = { k: memoKey, v: {} };
+    if (roundMemo.v[key]) return roundMemo.v[key];
+    var pl = countPlan(), full = key === 'full', ev = full ? [pl.fullEvery, 'm'] : CYCLE_EVERY[pl.cycleEvery], start = full ? pl.fullStart : pl.cycleStart;
+    var stepDays = ev[1] === 'd' ? ev[0] : ev[0] * 30, warn = Math.min(pl.warnDays, Math.floor(stepDays / 2)), t = today();
+    // the latest round whose warning has started; before the first one: that first one (not open yet)
+    var k = 0, date = start;
+    while (k < 2000) { var nd = isoAdd(start, (k + 1) * ev[0], ev[1]); if (dayDiff(t, nd) > warn) break; k++; date = nd; }
+    var open = isoAdd(date, -warn, 'd'), opened = dayDiff(t, open) <= 0;
+    var boxes = (snap.locations || []).filter(function (l) { return l.sku && P[l.sku] && (l.type === 'BIN' || (full && l.type === 'TOTE')); });
+    var left = boxes.filter(function (l) { return !((l.last_count || '') >= open); });
+    var until = dayDiff(t, date);
+    var r = {
+      key: key, name: full ? 'Full count (blue bins + white boxes)' : 'Blue bin cycle count', unit: full ? 'boxes' : 'blue bins',
+      every: full ? FULL_EVERY[pl.fullEvery] : CYCLE_EVERY[pl.cycleEvery][2], date: date, open: open, warn: warn,
+      next: opened ? isoAdd(start, (k + 1) * ev[0], ev[1]) : date, boxes: boxes, left: left,
+      state: !opened ? 'idle' : boxes.length && !left.length ? 'done' : !boxes.length ? 'idle' : until > 0 ? 'soon' : until === 0 ? 'today' : 'late'
+    };
+    return (roundMemo.v[key] = r);
+  }
+  /** Planned counts that are coming or on now, the most urgent first.  A full count that is on covers the blue bins too. */
+  function dueRounds() {
+    if (!signedIn()) return [];
+    var f = planRound('full'), c = planRound('cycle'), out = [];
+    [f, c].forEach(function (r) { if (r.state === 'soon' || r.state === 'today' || r.state === 'late') out.push(r); });
+    if (f.state === 'today' || f.state === 'late') out = out.filter(function (r) { return r.key === 'full'; });
+    out.sort(function (a, b) { return (a.state === 'soon') - (b.state === 'soon') || a.date.localeCompare(b.date); });
+    return out;
+  }
+  function countOpen() { return dueRounds().length > 0; }
+  function renderCountAlert() {
+    var due = dueRounds(), el = $('countAlert'), badge = $('countBadge'), hide = load('inv.calertHide', {});
+    var shown = due.filter(function (r) { return r.state !== 'soon' || hide[r.key] !== r.date + '/' + today(); });
+    el.hidden = !shown.length || current === 'count';   // the Count tab shows the same at its top
+    el.innerHTML = shown.map(function (r) {
+      var on = r.state !== 'soon', n = r.left.length;
+      var head = r.state === 'soon' ? '📅 ' + r.name + ' ' + planWhen(r.date) + ' · ' + fmtDay(r.date) :
+        r.state === 'today' ? '📅 ' + r.name + ' is TODAY' : '⚠ ' + r.name + ' is on since ' + fmtDay(r.date) + ' (' + planWhen(r.date) + ')';
+      return '<div class="ca ' + (on ? 'due' : 'soon') + '" data-ca="' + r.key + '"><div class="grow">' + esc(head) +
+        '<small>' + n + ' of ' + r.boxes.length + ' ' + r.unit + ' still to count' + (r.state === 'soon' ? '. You can start now.' : '.') + '</small></div>' +
+        '<button type="button" data-cago="' + r.key + '">Count now</button>' + (on ? '' : '<button type="button" class="x" data-cax="' + r.key + '" aria-label="Hide for today">✕</button>') + '</div>';
+    }).join('');
+    qsa('[data-cago]', el).forEach(function (b) { b.onclick = function () { dayPicked = b.dataset.cago; showTab('count'); }; });
+    qsa('[data-cax]', el).forEach(function (b) {
+      b.onclick = function () { var r = planRound(b.dataset.cax), h = load('inv.calertHide', {}); h[r.key] = r.date + '/' + today(); save('inv.calertHide', h); renderCountAlert(); };
+    });
+    var top = due[0];
+    badge.hidden = !top;
+    if (top) { badge.textContent = top.left.length > 99 ? '99+' : String(top.left.length); badge.className = 'tbadge' + (top.state === 'soon' ? ' soon' : ''); }
+  }
+
+  $('prefDark').onchange = function () { prefs.dark = this.checked; save('inv.prefs', prefs); applyPrefs(); toast(prefs.dark ? 'Dark mode on' : 'Dark mode off', 'good'); };
+  $('prefSound').onchange = function () { prefs.sound = this.checked; save('inv.prefs', prefs); if (prefs.sound) beep(true); toast(prefs.sound ? 'Beep on' : 'Beep off', 'good'); };
+
+  /* Setup → 📅 Cycle count plan: everyone sees it, supervisors change it */
+  var planDirty = false;
+  ['planCycleEvery', 'planCycleStart', 'planFullEvery', 'planFullStart', 'planWarn'].forEach(function (id) { $(id).addEventListener('input', function () { planDirty = true; }); $(id).addEventListener('change', function () { planDirty = true; }); });
+  function renderPlan() {
+    var pl = countPlan();
+    $('planNow').innerHTML = ['cycle', 'full'].map(function (k) {
+      var r = planRound(k), st = r.state, cls = st === 'soon' ? 'soon' : st === 'today' || st === 'late' ? 'due' : st === 'done' ? 'done' : '';
+      var now = st === 'idle' ? 'Next: <b>' + esc(fmtDay(r.date)) + '</b> (' + planWhen(r.date) + ')' :
+        st === 'done' ? 'Done ✓ · next: <b>' + esc(fmtDay(r.next)) + '</b> (' + planWhen(r.next) + ')' :
+        (st === 'soon' ? 'Coming: <b>' : 'On now: <b>') + esc(fmtDay(r.date)) + '</b> (' + planWhen(r.date) + ') · ' + r.left.length + ' of ' + r.boxes.length + ' left';
+      return '<div class="pl ' + cls + '"><b>' + esc(r.name) + '</b> · ' + esc(r.every) + '<br>' + now + '</div>';
+    }).join('') + '<p class="hint">Everyone gets a warning ' + pl.warnDays + ' day' + (pl.warnDays === 1 ? '' : 's') + ' before a count' +
+      (pl.saved ? '.' : '. This is the standard plan: a supervisor can change it below.') + '</p>';
+    if (!planDirty) {
+      $('planCycleEvery').value = pl.cycleEvery; $('planCycleStart').value = pl.cycleStart;
+      $('planFullEvery').value = String(pl.fullEvery); $('planFullStart').value = pl.fullStart; $('planWarn').value = String(pl.warnDays);
+      if (!$('planWarn').value) { $('planWarn').value = '7'; }
+    }
+  }
+  $('planSave').onclick = function () {
+    var v = { cycleEvery: $('planCycleEvery').value, cycleStart: $('planCycleStart').value, fullEvery: num($('planFullEvery').value), fullStart: $('planFullStart').value, warnDays: num($('planWarn').value) };
+    if (!isoDate(v.cycleStart) || !isoDate(v.fullStart)) return toast('Choose both start dates', 'bad');
+    var json = JSON.stringify(v);
+    api('saveSetting', { key: 'countPlan', value: json }).then(function () {
+      var row = (snap.settings = snap.settings || []).filter(function (x) { return x.key === 'countPlan'; })[0];
+      if (row) row.value = json; else snap.settings.push({ key: 'countPlan', value: json, by: cfg.user });
+      planDirty = false; toast('Count plan saved. Everyone sees it.', 'good'); renderAll(); return refresh();
+    }).catch(function (e) { toast(e.message, 'bad'); });
+  };
+
   /* ---------------- COUNT (blind) ---------------- */
-  var dayPicked = null;
-  $('schedDay').onchange = function () { dayPicked = num(this.value); renderCount(); };
+  var dayPicked = null;   // null = automatic: the planned count that is due, else today's daily group
+  $('schedDay').onchange = function () { dayPicked = this.value; renderCount(); };
   function shelfOf(loc) { var m = /^(A200|C1|OK|UNI)-([BT])(\d+)$/.exec(loc); return m ? m[1] + '-' + m[2] + Math.floor(Number(m[3]) / 10) + 'x' : loc.split('-').slice(0, 2).join('-'); }   // counted in groups of ten
 
-  /** Locations to count for a weekday (1=Mon … 5=Fri; 0 = overdue). */
+  /** Locations to count: 'cycle' / 'full' (the count plan), or a weekday '1' (Mon) … '5' (Fri); '0' = overdue. */
   function schedule(day) {
+    if (day === 'cycle' || day === 'full') {
+      var r = planRound(day);
+      return { plan: r, title: r.name + (r.state === 'idle' ? ' · next ' + fmtDay(r.date) : r.state === 'done' ? ' · done ✓ (next ' + fmtDay(r.next) + ')' : ' · ' + fmtDay(r.date)),
+        list: r.state === 'idle' ? [] : r.boxes };
+    }
+    day = num(day);
     var bins = snap.locations.filter(function (l) { return l.type === 'BIN' && P[l.sku]; });
     var withPart = function (fn) { return bins.filter(function (l) { return fn(P[l.sku]); }); };
     if (day === 1) return { title: 'OK4 (OKAI 400C) A-items', list: withPart(function (p) { return p.abc === 'A' && (p.model === 'OK4' || p.model === 'UNI'); }) };
@@ -2614,16 +2740,32 @@
   }
 
   function renderCount() {
-    var wd = new Date().getDay();
-    var day = dayPicked != null ? dayPicked : (wd >= 1 && wd <= 5 ? wd : 0);
-    $('schedDay').value = String(day);
-    var s = schedule(day), done = s.list.filter(function (l) { return l.last_count === today(); }).length;
-    $('schedTitle').textContent = (dayPicked == null && day === wd ? "Today's count: " : '') + s.title;
-    $('schedHint').textContent = s.list.length ? done + ' of ' + s.list.length + ' bins counted today. You will not see the system number while counting.' : 'Nothing to count in this group yet (no bins set up for it).';
-    s.list.sort(function (a, b) { return (a.last_count === today()) - (b.last_count === today()) || a.loc.localeCompare(b.loc); });
+    var wd = new Date().getDay(), due = dueRounds();
+    var day = dayPicked != null ? dayPicked : due.length ? due[0].key : String(wd >= 1 && wd <= 5 ? wd : 0);
+    $('schedDay').value = day;
+    var s = schedule(day), r = s.plan, isDone;
+    if (r) {
+      // planned count: boxes not counted since the round opened first, oldest count first
+      isDone = function (l) { return (l.last_count || '') >= r.open; };
+      var left = r.left.length, all = r.boxes.length;
+      $('schedTitle').textContent = s.title;
+      $('schedHint').textContent = r.state === 'idle' ? 'Nothing to count yet. Counting starts ' + fmtDay(r.open) + ' (' + planWhen(r.open) + '). ' + all + ' ' + r.unit + ' in this count.' :
+        !all ? 'No ' + r.unit + ' set up yet.' :
+        (all - left) + ' of ' + all + ' ' + r.unit + ' counted' + (left ? ', ' + left + ' left.' : '. All done ✓') + ' You will not see the system number while counting.' + (left > 60 ? ' Showing the 60 counted longest ago; scan any box to count it.' : '');
+      $('schedBar').hidden = r.state === 'idle' || !all;
+      $('schedBar').firstChild.style.width = (all ? Math.round((all - left) * 100 / all) : 0) + '%';
+      s.list = r.state === 'idle' ? [] : r.left.slice().sort(function (a, b) { return (a.last_count || '').localeCompare(b.last_count || '') || a.loc.localeCompare(b.loc); }).slice(0, 60);
+    } else {
+      isDone = function (l) { return l.last_count === today(); };
+      var done = s.list.filter(isDone).length;
+      $('schedBar').hidden = true;
+      $('schedTitle').textContent = (dayPicked == null && num(day) === wd ? "Today's count: " : '') + s.title;
+      $('schedHint').textContent = s.list.length ? done + ' of ' + s.list.length + ' bins counted today. You will not see the system number while counting.' : 'Nothing to count in this group yet (no bins set up for it).';
+      s.list.sort(function (a, b) { return isDone(a) - isDone(b) || a.loc.localeCompare(b.loc); });
+    }
     $('schedList').innerHTML = s.list.map(function (l) {
-      var p = P[l.sku], did = l.last_count === today();
-      return '<div class="item"><span class="swatch sw-' + esc(p.model) + '"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">SKU ' + esc(codeOf(p)) + ' · last counted ' + esc(l.last_count || 'never') + '</div></div>' +
+      var p = P[l.sku], did = isDone(l);
+      return '<div class="item"><span class="swatch sw-' + esc(p.model) + '"></span><div class="grow"><div class="t1"><span class="mono">' + esc(l.loc) + '</span> · ' + esc(p.name) + '</div><div class="t2">' + (l.type === 'TOTE' ? 'White box · ' : r ? 'Blue bin · ' : '') + 'SKU ' + esc(codeOf(p)) + ' · last counted ' + esc(l.last_count || 'never') + '</div></div>' +
         (did ? '<span class="pill done">Counted ✓</span>' : '<button data-count="' + esc(l.loc) + '" data-csku="' + esc(l.sku) + '">Count</button>') + '</div>';
     }).join('');
     qsa('[data-count]').forEach(function (b) { b.onclick = function () { countLoc(b.dataset.count, b.dataset.csku); }; });
@@ -3082,6 +3224,8 @@
   /* ---------------- SETUP ---------------- */
   function renderSetup() {
     var m = mode();
+    renderPlan();
+    $('prefDark').checked = !!prefs.dark; $('prefSound').checked = prefs.sound !== false;
     $('connFields').style.display = EMBED || window.PREVIEW_ONLY ? 'none' : '';
     $('cfgSave').style.display = EMBED ? 'none' : '';
     $('demoPanel').style.display = m === 'DEMO' ? '' : 'none';

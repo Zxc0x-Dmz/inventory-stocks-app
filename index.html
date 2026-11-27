@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Stocks">
-<link rel="stylesheet" href="style.css?v=2.62">
+<link rel="stylesheet" href="style.css?v=2.63">
 </head>
 <body>
 <header class="top">
@@ -27,12 +27,13 @@
   <button data-tab="map"><span>🧭</span>Map</button>
   <button data-tab="restock"><span>⇪</span>Restock</button>
   <button data-tab="stock"><span>☰</span>Stock</button>
-  <button data-tab="count"><span>✓</span>Count</button>
+  <button data-tab="count"><span>✓</span>Count<i class="tbadge" id="countBadge" hidden></i></button>
   <button data-tab="labels"><span>▤</span>Labels</button>
   <button data-tab="setup"><span>⚙</span><b>Setup</b></button>
 </nav>
 
 <main>
+  <div id="countAlert" class="calert" hidden></div>
   <!-- MAP: where is a part in the workshop; stickman walks there.  Supervisors draw the workshop. -->
   <section id="tab-map" class="tab">
     <div id="mapDraftNote"></div>
@@ -129,14 +130,21 @@
         <p class="hint" id="schedHint"></p>
       </div>
       <select id="schedDay">
-        <option value="1">Mon · OK4 A-items</option>
-        <option value="2">Tue · NB3 A-items</option>
-        <option value="3">Wed · NB2 A-items</option>
-        <option value="4">Thu · B-items shelf</option>
-        <option value="5">Fri · C-items fasteners</option>
-        <option value="0">Overdue (any)</option>
+        <optgroup label="Count plan (Setup → Cycle count plan)">
+          <option value="cycle">Blue bin cycle count</option>
+          <option value="full">Full count · blue bins + white boxes</option>
+        </optgroup>
+        <optgroup label="Daily 15-minute count">
+          <option value="1">Mon · OK4 A-items</option>
+          <option value="2">Tue · NB3 A-items</option>
+          <option value="3">Wed · NB2 A-items</option>
+          <option value="4">Thu · B-items shelf</option>
+          <option value="5">Fri · C-items fasteners</option>
+          <option value="0">Overdue (any)</option>
+        </optgroup>
       </select>
     </div>
+    <div id="schedBar" class="cbar" hidden><i></i></div>
     <div class="scanrow">
       <input id="countInput" class="scan" placeholder="Scan a bin to count it" autocomplete="off" autocapitalize="characters">
       <button class="cam" data-cam="countInput">📷</button>
@@ -180,6 +188,35 @@
       <button id="signOut" class="big">Sign out</button>
       <p class="hint" id="appVer"></p>
       <button id="checkUpdate" class="big" type="button" style="background:#e4e7eb;color:var(--ink)">Check for updates</button>
+    </div>
+    <div class="panel" id="prefPanel">
+      <h3>Screen and sound <small class="hint">(this phone only)</small></h3>
+      <label class="tog prefrow"><input type="checkbox" id="prefDark"> <span>🌙 Dark mode</span></label>
+      <label class="tog prefrow"><input type="checkbox" id="prefSound"> <span>🔊 Beep when scanning</span></label>
+      <p class="hint">The phone still vibrates on a scan when the beep is off.</p>
+    </div>
+    <div class="panel" id="planPanel">
+      <h3>📅 Cycle count plan</h3>
+      <div id="planNow" class="plannow"></div>
+      <div class="sup-only" id="planEdit">
+        <h4>Blue bin cycle count <small>(blue bins only)</small></h4>
+        <div class="row2">
+          <div><label class="lbl">How often</label><select id="planCycleEvery">
+            <option value="1w">Every week</option><option value="2w">Every 2 weeks</option><option value="1m">Every month</option>
+            <option value="2m">Every 2 months</option><option value="3m">Every 3 months</option></select></div>
+          <div><label class="lbl">Starts on (then repeats)</label><input id="planCycleStart" type="date"></div>
+        </div>
+        <h4>Full count <small>(blue bins + white boxes)</small></h4>
+        <div class="row2">
+          <div><label class="lbl">How often</label><select id="planFullEvery">
+            <option value="3">Every 3 months</option><option value="6">Every 6 months</option><option value="12">Every year</option></select></div>
+          <div><label class="lbl">Starts on (then repeats)</label><input id="planFullStart" type="date"></div>
+        </div>
+        <label class="lbl">Warn everyone before a count</label>
+        <select id="planWarn"><option value="3">3 days before</option><option value="7">1 week before</option><option value="14">2 weeks before</option></select>
+        <p class="hint">Counting can start as soon as the warning shows. A count is finished when every box in it has been counted.</p>
+        <button id="planSave" class="big ok" type="button">Save count plan</button>
+      </div>
     </div>
     <div class="panel">
       <h3>Connection</h3>
@@ -294,9 +331,9 @@
 <div id="toast" class="toast hidden"></div>
 <div id="printArea"></div>
 
-<script src="core.js?v=2.62"></script>
-<script src="demo-seed.js?v=2.62"></script>
-<script src="walk3d.js?v=2.62"></script>
-<script src="app.js?v=2.62"></script>
+<script src="core.js?v=2.63"></script>
+<script src="demo-seed.js?v=2.63"></script>
+<script src="walk3d.js?v=2.63"></script>
+<script src="app.js?v=2.63"></script>
 </body>
 </html>

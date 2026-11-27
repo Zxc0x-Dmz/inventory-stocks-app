@@ -20,7 +20,7 @@ var ADMIN_NAME = 'Admin';
 var ROLES = { mechanic: 'Mechanic', supervisor: 'Supervisor' };
 /** Only supervisors may run these.  Mechanics can take, return, damaged, receive, restock, seal, count and add new parts
  *  (changing an existing part is checked in savePart). */
-var SUPERVISOR_OPS = { deleteBox: 1, resolveCount: 1, saveLocation: 1, saveLocations: 1, addStaff: 1, setStaff: 1, saveMap: 1 };
+var SUPERVISOR_OPS = { deleteBox: 1, resolveCount: 1, saveLocation: 1, saveLocations: 1, addStaff: 1, setStaff: 1, saveMap: 1, saveSetting: 1 };
 /** These never need a sign-in (the sign-in screen needs the list of names). */
 var PUBLIC_OPS = { staffNames: 1 };
 
@@ -351,11 +351,33 @@ Core.prototype.saveMap = function (p) {
   if (json.length > 45000) fail_('The map is too big');
   var m = p.map || {};
   if (!(m.w >= 6 && m.w <= 80 && m.h >= 6 && m.h <= 80) || !Array.isArray(m.racks)) fail_('This is not a workshop map');
-  var row = this.settingsRows_().filter(function (r) { return r.key === 'map'; })[0], now = this.nowIso();
-  if (row) this.s.update('Settings', row, { value: json, updated: now, by: p.by || '' });
-  else this.s.append('Settings', { key: 'map', value: json, updated: now, by: p.by || '' });
+  return this.putSetting_('map', json, p.by);
+};
+
+/** One Settings row (key -> value); added when missing. */
+Core.prototype.putSetting_ = function (key, value, by) {
+  var row = this.settingsRows_().filter(function (r) { return r.key === key; })[0], now = this.nowIso();
+  if (row) this.s.update('Settings', row, { value: value, updated: now, by: by || '' });
+  else this.s.append('Settings', { key: key, value: value, updated: now, by: by || '' });
   this.s.bump();
   return { ok: true, version: this.s.version() };
+};
+
+/** Known shared settings and their check.  countPlan = when the cycle counts happen (see app.js countPlan()). */
+var SETTING_CHECKS = {
+  countPlan: function (v) {
+    var d = /^\d{4}-\d\d-\d\d$/;
+    return v && typeof v === 'object' && { '1w': 1, '2w': 1, '1m': 1, '2m': 1, '3m': 1 }[v.cycleEvery] && d.test(v.cycleStart || '') &&
+      { 3: 1, 6: 1, 12: 1 }[v.fullEvery] && d.test(v.fullStart || '') && v.warnDays >= 1 && v.warnDays <= 30;
+  }
+};
+/** A shared setting other than the map.  p = {key, value}  Supervisors only, known keys only. */
+Core.prototype.saveSetting = function (p) {
+  var check = SETTING_CHECKS[String(p.key || '')], v = p.value;
+  if (!check) fail_('Unknown setting ' + p.key);
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+  if (!check(v)) fail_('This count plan is not complete');
+  return this.putSetting_(String(p.key), JSON.stringify(v), p.by);
 };
 
 /** Where a box sits: "R01/3/2" = rack R01, shelf 3 from the bottom, 2nd box from the left.  p = {loc, place}  ('' clears it) */
@@ -488,6 +510,7 @@ Core.prototype.handle = function (op, p, who) {
     case 'setReorder': return this.setReorder(p);
     case 'markPrinted': return this.markPrinted(p);
     case 'saveMap': return this.saveMap(p);
+    case 'saveSetting': return this.saveSetting(p);
     case 'setPlace': return this.setPlace(p);
     case 'deleteBox': return this.deleteBox(p);
     case 'history': return this.history(p);

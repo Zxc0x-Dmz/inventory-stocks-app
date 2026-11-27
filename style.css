@@ -180,7 +180,8 @@ td.mono { white-space: nowrap; }
 .tabs b { font-weight: inherit; }
 
 /* mechanics: only Scan and Settings; on a phone the two tabs sit at the bottom like an app */
-body:not(.sup) #tabs button:not([data-tab="take"]):not([data-tab="boxes"]):not([data-tab="map"]):not([data-tab="setup"]) { display: none; }
+body:not(.sup):not(.countOn) #tabs button:not([data-tab="take"]):not([data-tab="boxes"]):not([data-tab="map"]):not([data-tab="setup"]) { display: none; }
+body.countOn:not(.sup) #tabs button:not([data-tab="take"]):not([data-tab="boxes"]):not([data-tab="map"]):not([data-tab="setup"]):not([data-tab="count"]) { display: none; }
 body:not(.sup) .sup-only { display: none !important; }
 @media (max-width: 700px) {
   body:not(.sup) .tabs { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 30; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: 0 -2px 10px rgba(0,0,0,.06); }
@@ -683,3 +684,59 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 .w3d.roaming canvas { cursor: crosshair; touch-action: none; }
 .w3d.locked canvas { cursor: none; }
 .w3d-zoom { position: absolute; top: calc(70px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); background: rgba(20, 24, 31, .82); color: #fff; font-weight: 800; border-radius: 20px; padding: 6px 14px; pointer-events: none; }
+/* cycle count plan: alert strip, Count tab badge, progress bar */
+.calert { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
+.calert[hidden] { display: none; }
+.calert .ca { display: flex; align-items: center; gap: 10px; border-radius: 12px; padding: 10px 12px; font-weight: 600; line-height: 1.3; }
+.calert .ca.soon { background: #fff4d6; color: #6b4a00; border: 1px solid #f0c75e; }
+.calert .ca.due { background: #fde3e1; color: #8a1c12; border: 1px solid #ef9a92; }
+.calert .ca .grow { flex: 1; }
+.calert .ca small { display: block; font-weight: 500; opacity: .85; }
+.calert .ca button { flex: none; border: 0; border-radius: 10px; padding: 8px 12px; font-weight: 700; background: #fff; color: inherit; cursor: pointer; }
+.calert .ca button.x { background: transparent; padding: 8px; }
+#tabs button { position: relative; }
+.tbadge { position: absolute; top: 4px; right: calc(50% - 22px); min-width: 18px; height: 18px; border-radius: 9px; background: #d93025; color: #fff; font: 700 11px/18px system-ui, sans-serif; font-style: normal; padding: 0 4px; }
+.tbadge.soon { background: #e8a200; }
+.tbadge[hidden] { display: none; }
+.cbar { height: 10px; border-radius: 5px; background: #e4e7eb; overflow: hidden; margin: 0 0 10px; }
+.cbar[hidden] { display: none; }
+.cbar i { display: block; height: 100%; width: 0; background: #1e8e3e; transition: width .3s; }
+.plannow .pl { border-left: 4px solid #c9d1da; padding: 4px 10px; margin: 6px 0; }
+.plannow .pl.soon { border-color: #e8a200; }
+.plannow .pl.due { border-color: #d93025; }
+.plannow .pl.done { border-color: #1e8e3e; }
+#planEdit h4 { margin: 14px 0 4px; }
+#planEdit h4 small { font-weight: 500; color: #6b7480; }
+.prefrow { display: flex; align-items: center; gap: 10px; padding: 10px 0; font-weight: 600; font-size: 16px; cursor: pointer; }
+.prefrow input { width: 22px; height: 22px; flex: none; }
+#prefPanel h3 small { font-weight: 500; }
+
+/* ---------------- dark mode (Settings → Screen and sound).  Labels, print previews and photos stay white. ---------------- */
+html.dark { color-scheme: dark; --bg: #0f1318; --card: #1a2028; --ink: #e6e9ee; --mute: #9aa3ae; --line: #2f3742; --top: #090c10; --accent: #4c9bf5; --good: #3fb768; --bad: #ef6461; --warn: #e0a24a; }
+html.dark body { background: var(--bg); }
+html.dark .tabs, html.dark .seg button.on, html.dark input, html.dark select, html.dark textarea, html.dark .list .item, html.dark .chip,
+html.dark .summary .fact, html.dark .tablewrap, html.dark .review, html.dark .panel, html.dark .sheet, html.dark .acts button, html.dark .pick,
+html.dark .search, html.dark .mcard, html.dark .pc, html.dark .today, html.dark .boxchip, html.dark .moreacts button, html.dark .photobtn,
+html.dark .kindbtn, html.dark .sibox, html.dark .pickbox, html.dark .rsrow .rs, html.dark .ordrow, html.dark .repbar, html.dark .pvbtn,
+html.dark .boxcard, html.dark .boxcard .brow, html.dark .mapcard, html.dark .mapedit, html.dark .mapedit .tools button,
+html.dark .mapedit .rkpanel button, html.dark .shelfed, html.dark .boxpick .bp, html.dark .grid th { background: var(--card); color: var(--ink); }
+html.dark .search, html.dark .mcard, html.dark .pc, html.dark .today { box-shadow: 0 0 0 1px var(--line); }
+html.dark .seg, html.dark .stepper button, html.dark .list .item button, html.dark .pill, html.dark #checkUpdate, html.dark .mapfloat.hint button { background: #2a323d !important; color: var(--ink) !important; }
+html.dark code, html.dark .fact, html.dark .pd-facts div, html.dark .mcard .mc, html.dark .mtag, html.dark .packlist, html.dark .mapedit .rkpanel,
+html.dark .boxcard .bplace, html.dark .mapfloat.hint, html.dark table.keys kbd, html.dark .pc-ph, html.dark .pd-ph, html.dark .pphoto, html.dark .kindbtn.kw.on { background-color: #232a34; color: var(--ink); }
+html.dark .pc-ph, html.dark .pd-ph { border-bottom-color: var(--line); }
+html.dark .boxcard .brow { border-bottom-color: var(--line); }
+html.dark .grid tr:hover td, html.dark #mapLayers .lyr:hover { background: #222a35; }
+html.dark .pc-code { background: #16304f; color: #8cc0ff; }
+html.dark .boxchip.on, html.dark .pickbox.on, html.dark .labelbar, html.dark .kindbtn.kb.on, html.dark .rsrow .rs.on, html.dark .mapedit .tools button.on, html.dark #mapLayers .lyr.on { background: #16304f; color: #a9cfff; }
+html.dark .fact.low, html.dark .list .item button.no, html.dark .pill.err, html.dark .orderbar, html.dark #mapSteps .warn, html.dark .calert .ca.due { background: #3a1c1c !important; color: #ffb4ae !important; border-color: #8a3a35; }
+html.dark .pill.sent, html.dark .pill.done { background: #173322 !important; color: #7fdc9e !important; }
+html.dark .pill.wait, html.dark .packbtn, html.dark #mapSteps .steps, html.dark .draftbar, html.dark .draftnote, html.dark .whbig, html.dark .boxpick .bp.on, html.dark .calert .ca.soon { background: #3a2e12 !important; color: #ffd98a !important; }
+html.dark .calert .ca button { background: rgba(255,255,255,.12); }
+html.dark .calert .ca button.x { background: transparent; }
+html.dark .cbar { background: #2a323d; }
+html.dark .pvwrap, html.dark .pvwrap.one { background: #2a323d; }
+html.dark a { color: #8cc0ff; }
+html.dark #demoReset { background: #2a323d; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
+html.dark .toast { box-shadow: 0 2px 12px rgba(0,0,0,.6); }
+@media print { html.dark { color-scheme: light; --bg: #fff; --card: #fff; --ink: #14181f; --mute: #5f6672; --line: #dde0e5; } }
