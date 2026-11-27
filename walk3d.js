@@ -190,7 +190,7 @@
     var guided = !!(o.rack && o.path && o.path.length);
     var box = el('<div class="w3d" role="dialog" aria-label="Walk in the workshop in 3D"><div class="w3d-top"><b>' + esc(guided ? 'Rack ' + o.rackLabel + ' · shelf ' + o.shelf + ' · box ' + o.slot : 'Workshop · walk around') + '</b>' +
       (o.code ? '<span class="mono">' + esc(o.code) + '</span>' : '') + '<button type="button" class="w3d-x" aria-label="Close">✕</button></div>' +
-      '<div class="w3d-cross" aria-hidden="true"></div><div class="w3d-info" hidden></div><div class="w3d-joy" hidden><i></i></div>' +
+      '<div class="w3d-cross" aria-hidden="true"></div><div class="w3d-zoom" hidden></div><div class="w3d-info" hidden></div><div class="w3d-joy" hidden><i></i></div>' +
       '<div class="w3d-hud"><div class="w3d-step"></div><div class="w3d-btns">' +
       (guided ? '<button type="button" class="w3d-again">↻ Walk again</button>' : '') +
       '<button type="button" class="w3d-roam">🕹 Walk around yourself</button><button type="button" class="w3d-point" title="B">👉 Point <kbd>B</kbd></button></div></div></div>');
@@ -292,7 +292,7 @@
     function tick(now) {
       if (!alive) return;
       var dt = Math.min(0.05, (now - (last || now)) / 1000); last = now;
-      if (phase === 'roam') { roamStep(dt, now); renderer.render(scene, camera); state.raf = requestAnimationFrame(tick); return; }
+      if (phase === 'roam') { roamStep(dt, now); drawFrame(); state.raf = requestAnimationFrame(tick); return; }
       if (phase === 'door' && now - t0 > 900) { phase = 'walk'; say('Walk in and follow the walkway to <b>Rack ' + esc(o.rackLabel) + '</b>.'); }
       if (phase === 'walk') {
         var speed = Math.max(1.6, len / 9); dist = Math.min(len, dist + speed * dt);
@@ -344,7 +344,7 @@
         if (Math.abs(camera.fov - wf) > 0.3) { camera.fov += (wf - camera.fov) * Math.min(1, dt * 2); camera.updateProjectionMatrix(); }
       }
       camera.position.copy(camPos); camera.lookAt(camLook);
-      renderer.render(scene, camera);
+      drawFrame();
       state.raf = requestAnimationFrame(tick);
     }
     var fit = function () { var w = box.clientWidth, h = box.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.fov = w < 520 ? 68 : 58; camera.updateProjectionMatrix(); };
@@ -368,6 +368,25 @@
       camera.add(fpArm); scene.add(camera);
     })();
     function togglePoint() { pointing = !pointing; var b = box.querySelector('.w3d-point'); if (b) b.classList.toggle('on', pointing); }
+    /* zoom (mouse wheel, + / - keys, 0 resets): added to the view angle the camera picks by itself.
+     * zoom < 0 = closer (narrower view), zoom > 0 = wider. */
+    var zoom = 0, zoomEl = box.querySelector('.w3d-zoom'), zoomT = 0;
+    function drawFrame() {
+      var f = camera.fov; camera.fov = Math.max(20, Math.min(100, f + zoom)); camera.updateProjectionMatrix();
+      renderer.render(scene, camera);
+      camera.fov = f; camera.updateProjectionMatrix();
+    }
+    function setZoom(z) {
+      zoom = Math.max(-38, Math.min(30, z));
+      var base = camera.fov || 60, f = Math.max(20, Math.min(100, base + zoom)), x = Math.tan(base * Math.PI / 360) / Math.tan(f * Math.PI / 360);
+      zoomEl.textContent = 'Zoom ' + (Math.abs(zoom) < 0.5 ? '1×' : x.toFixed(1) + '×'); zoomEl.hidden = false;
+      clearTimeout(zoomT); zoomT = setTimeout(function () { zoomEl.hidden = true; }, 1100);
+    }
+    renderer.domElement.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;   // lines -> pixels
+      setZoom(zoom + dy * 0.03);
+    }, { passive: false });
     var roam = null, keys = {}, info = box.querySelector('.w3d-info'), joyEl = box.querySelector('.w3d-joy'), hl = null, lastPick = 0, unlockAt = 0;
     var canvas = renderer.domElement, isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
     var EYE = 1.62, ray = new T.Raycaster(), joy = { id: null, x0: 0, y0: 0, dx: 0, dy: 0 }, look = { id: null, x: 0, y: 0 }, drag = null;
@@ -390,7 +409,7 @@
       phase = 'roam'; F.man.visible = false; F.shadow.visible = false; glowMesh && (glowMesh.visible = !!fromMan && glowMesh.visible); tag.visible = false;   // the info card replaces the code tag
       box.classList.add('roaming'); state.endFov = 0; state.walkFov = 0; fit();
       say(isTouch ? '<b>Left thumb</b>: walk · <b>right thumb</b>: look around · <b>👉 Point</b> raises your hand. Look at a box to see what is in it.'
-        : '<b>W A S D</b> or arrows to walk · <b>Shift</b> to run · <b>click</b>, then move the mouse to look (or drag) · <b>B</b> points / lowers your hand · <b>Esc</b> frees the mouse. Look at a box to see what is in it.');
+        : '<b>W A S D</b> or arrows to walk · <b>Shift</b> to run · <b>click</b>, then move the mouse to look (or drag) · <b>B</b> points / lowers your hand · <b>scroll</b> zooms (0 resets) · <b>Esc</b> frees the mouse. Look at a box to see what is in it.');
     }
     function roamStep(dt, now) {
       var r = roam, fx = Math.sin(r.yaw), fz = Math.cos(r.yaw), rx = -Math.cos(r.yaw), rz = Math.sin(r.yaw);
@@ -431,6 +450,9 @@
         var k = (e.key || '').toLowerCase();
         if (down && k === 'escape') { if (document.pointerLockElement === canvas || performance.now() - unlockAt < 400) return; close(); return; }
         if (down && k === 'b' && !e.repeat) { togglePoint(); e.preventDefault(); return; }
+        if (down && (k === '+' || k === '=')) { setZoom(zoom - 4); e.preventDefault(); return; }
+        if (down && (k === '-' || k === '_')) { setZoom(zoom + 4); e.preventDefault(); return; }
+        if (down && k === '0') { setZoom(0); e.preventDefault(); return; }
         if (phase !== 'roam') return;
         if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].indexOf(k) >= 0) { keys[k] = down; e.preventDefault(); }
       };
@@ -483,7 +505,7 @@
     box.querySelector('.w3d-roam').onclick = function () { startRoam(phase !== 'door' && guided); };
     box.querySelector('.w3d-point').onclick = togglePoint;
     // read-only status for tests
-    state.debug = function () { return { phase: phase, roam: roam ? { x: roam.x, z: roam.z, yaw: roam.yaw } : null, pointing: pointing, armUp: fpLift, info: info.hidden ? '' : info.textContent, start: [P[0].x, P[0].z], man: [F.man.position.x, F.man.position.z] }; };
+    state.debug = function () { return { zoom: zoom, phase: phase, roam: roam ? { x: roam.x, z: roam.z, yaw: roam.yaw } : null, pointing: pointing, armUp: fpLift, info: info.hidden ? '' : info.textContent, start: [P[0].x, P[0].z], man: [F.man.position.x, F.man.position.z] }; };
     if (box.querySelector('.w3d-again')) box.querySelector('.w3d-again').onclick = start;
     fit();
     if (guided && o.mode !== 'roam') start(); else startRoam(false);

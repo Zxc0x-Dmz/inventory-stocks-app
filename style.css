@@ -682,3 +682,4 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 .w3d-joy i { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255, 255, 255, .85); }
 .w3d.roaming canvas { cursor: crosshair; touch-action: none; }
 .w3d.locked canvas { cursor: none; }
+.w3d-zoom { position: absolute; top: calc(70px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); background: rgba(20, 24, 31, .82); color: #fff; font-weight: 800; border-radius: 20px; padding: 6px 14px; pointer-events: none; }
