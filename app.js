@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.51 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.52 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2835,7 +2835,7 @@
   function rackPages(signs) {
     var sh = '';
     for (var si = 0; si < signs.length; si += 5) {
-      sh += '<div class="page" style="padding:11mm 27.5mm;grid-template-columns:155mm;grid-template-rows:repeat(5,51mm);row-gap:5mm">' + signs.slice(si, si + 5).map(rackSign).join('') + '</div>';
+      sh += '<div class="page" style="padding:11mm 27.5mm;grid-template-columns:155mm;grid-template-rows:repeat(5,51mm);row-gap:5mm">' + signs.slice(si, si + 5).map(rackSign).join('') + cutLines(210, 297, [25, 185], [8.5, 64.5, 120.5, 176.5, 232.5, 288.5]) + '</div>';
     }
     return sh;
   }
@@ -2862,6 +2862,21 @@
       '<div><div class="tmeta">EXACT QUANTITY</div><div class="tq">' + num(l.qty) + '</div><div class="tmeta">Sealed ' + esc(l.sealed_date || today()) + (l.notes ? ' · ' + esc(l.notes) : '') + '</div></div>' +
       '<div class="sealbox">Seal broken on ____/____/______ by __________</div></div></div></div>';
   }
+  /** Cut lines for a paper trimmer: thin dashed lines from edge to edge of the sheet, only in the white space
+   *  between stickers, so you can line the blade up at both ends of the paper.  xs / ys in mm. */
+  function cutLines(W, H, xs, ys) {
+    var o = '<svg class="cutl" viewBox="0 0 ' + W + ' ' + H + '" style="width:' + W + 'mm;height:' + H + 'mm" xmlns="http://www.w3.org/2000/svg">';
+    var ln = function (x1, y1, x2, y2) { return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#444" stroke-width=".25" stroke-dasharray="2 1.2"/>'; };
+    xs.forEach(function (x) { if (x > .5 && x < W - .5) o += ln(x, 0, x, H); });
+    ys.forEach(function (y) { if (y > .5 && y < H - .5) o += ln(0, y, W, y); });
+    return o + '</svg>';
+  }
+  function gridCuts(padT, padL, cols, rows, w, h, W, H) {
+    var xs = [], ys = [], i;
+    for (i = 0; i <= cols; i++) xs.push(padL + i * w);
+    for (i = 0; i <= rows; i++) ys.push(padT + i * h);
+    return cutLines(W, H, xs, ys);
+  }
   function labelPages(kind, chosen) {
     var html = '';
     if (kind === 'BIN' || kind === 'PART') {
@@ -2869,11 +2884,11 @@
       var padT = Math.max(0, (297 - rows * h) / 2), padL = Math.max(0, (210 - cols * w) / 2);
       for (var i = 0; i < chosen.length; i += per) {
         html += '<div class="page" style="padding:' + padT + 'mm ' + padL + 'mm;grid-template-columns:repeat(' + cols + ',' + w + 'mm);grid-template-rows:repeat(' + rows + ',' + h + 'mm)">' +
-          chosen.slice(i, i + per).map(kind === 'PART' ? function (r) { return partLabel(r.part); } : binLabel).join('') + '</div>';
+          chosen.slice(i, i + per).map(kind === 'PART' ? function (r) { return partLabel(r.part); } : binLabel).join('') + gridCuts(padT, padL, cols, rows, w, h, 210, 297) + '</div>';
       }
     } else {
       // white box labels: A4 landscape, 2 x 2 stickers of 148.5 x 105 mm
-      for (var j = 0; j < chosen.length; j += 4) html += '<div class="page land" style="grid-template-columns:148.5mm 148.5mm;grid-template-rows:105mm 105mm">' + chosen.slice(j, j + 4).map(toteLabel).join('') + '</div>';
+      for (var j = 0; j < chosen.length; j += 4) html += '<div class="page land" style="grid-template-columns:148.5mm 148.5mm;grid-template-rows:105mm 105mm">' + chosen.slice(j, j + 4).map(toteLabel).join('') + gridCuts(0, 0, 2, 2, 148.5, 105, 297, 210) + '</div>';
     }
     return html;
   }

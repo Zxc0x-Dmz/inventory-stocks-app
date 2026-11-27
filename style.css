@@ -639,7 +639,11 @@ button:focus-visible { outline: 3px solid #7fb2f0; outline-offset: 2px; }
 .racksign.rk-mix .rs-m span { font-size: 11pt; font-weight: 800; }
 
 /* rack signs: 5 mm white gap with a dashed cut line in the middle */
-.page .lab.racksign { outline: 0.3mm dashed #9aa1ab; outline-offset: 2.5mm; }
+
 
 /* printed labels: full-strength toner colours (screens stay as they are) */
 .lab, .lab * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+/* trimmer cut lines over each sheet */
+.page { position: relative; }
+.page .cutl { position: absolute; left: 0; top: 0; pointer-events: none; }
