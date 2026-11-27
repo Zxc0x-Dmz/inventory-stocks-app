@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.53 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.54 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -80,6 +80,7 @@
   DemoStore.prototype.tail = function (n, k) { return this.d.t[n].slice(-k); };
   DemoStore.prototype.update = function (n, row, patch) { Object.keys(patch).forEach(function (k) { row[k] = String(patch[k]); }); this.persist(); };
   DemoStore.prototype.append = function (n, o) { var r = {}; TABLES[n].forEach(function (c) { r[c] = o[c] == null ? '' : String(o[c]); }); this.rows(n).push(r); this.persist(); };
+  DemoStore.prototype.clear = function (n, row) { var a = this.rows(n), i = a.indexOf(row); if (i >= 0) a.splice(i, 1); this.persist(); };
   DemoStore.prototype.hasMovement = function (id) { return this.d.t.Movements.some(function (m) { return m.id === id; }); };
   DemoStore.prototype.version = function () { return this.d.v; };
   DemoStore.prototype.bump = function () { this.d.v++; this.persist(); };
@@ -892,32 +893,52 @@
   /** Supervisor: take pieces off a box because of a mistake (wrong entry, double add).  Not counted as used:
    *  saved as a count correction (a supervisor count that is approved at once), so it shows in History as ADJUST. */
   function askRemove(sku, box) {
-    var p = P[sku], locs = (BY[sku] || []).filter(function (l) { return num(l.qty) > 0; });
-    if (!locs.length) return toast('Nothing in stock to remove', 'bad');
+    var p = P[sku], locs = (BY[sku] || []).slice();
+    if (!locs.length) return toast('This part is not in any box', 'bad');
     var cur = locs.filter(function (l) { return l.loc === box; })[0] || locs[0];
     var draw = function () {
-      modal('<h3 class="formtitle">🧹 Remove by mistake</h3><p class="hint"><b>' + esc(p.name) + '</b> · ' + esc(codeOf(p)) + '<br>For a wrong entry only. It is <b>not</b> counted as used or damaged; History shows it as a count correction by you.</p>' +
+      modal('<h3 class="formtitle">✏ Fix quantity</h3><p class="hint"><b>' + esc(p.name) + '</b> · ' + esc(codeOf(p)) + '<br>Typed too many or too few? Enter the <b>right</b> number. It is <b>not</b> counted as used or damaged; History shows it as a correction by you.</p>' +
         '<label class="lbl">From which box?</label><div class="chips">' + locs.map(function (l) { return '<button type="button" class="chip' + (l === cur ? ' on' : '') + '" data-rmb="' + esc(l.loc) + '">' + esc(l.loc) + ' · ' + num(l.qty) + '</button>'; }).join('') + '</div>' +
-        '<label class="lbl">How many to remove?</label><div class="stepper"><button type="button" data-step="-1">−</button><input id="rmQty" type="number" inputmode="numeric" min="1" value="1"><button type="button" data-step="1">+</button></div>' +
+        '<label class="lbl">Right quantity in ' + esc(cur.loc) + '</label><div class="stepper"><button type="button" data-step="-1">−</button><input id="rmQty" type="number" inputmode="numeric" min="0" value="' + num(cur.qty) + '"><button type="button" data-step="1">+</button></div>' +
         '<p class="hint" id="rmAfter"></p>' +
-        '<div class="btns"><button type="button" class="big" data-x="close">Cancel</button><button type="button" class="big bad" data-x="stay" id="rmGo">Remove</button></div>');
-      var upd = function () { var n = Math.round(num($('rmQty').value)); $('rmAfter').textContent = cur.loc + ': ' + num(cur.qty) + ' → ' + Math.max(0, num(cur.qty) - n); };
+        '<div class="btns"><button type="button" class="big" data-x="close">Cancel</button><button type="button" class="big ok" data-x="stay" id="rmGo">Save</button></div>');
+      var upd = function () { var t = Math.max(0, Math.round(num($('rmQty').value))), d = t - num(cur.qty); $('rmAfter').textContent = cur.loc + ': ' + num(cur.qty) + ' → ' + t + (d ? ' (' + (d > 0 ? '+' : '') + d + ')' : ' (no change)'); };
       $('rmQty').addEventListener('input', upd); qsa('#modalBody .stepper button').forEach(function (b) { b.addEventListener('click', function () { setTimeout(upd, 0); }); }); upd();
       qsa('#modalBody [data-rmb]').forEach(function (b) { b.onclick = function () { cur = locs.filter(function (l) { return l.loc === b.dataset.rmb; })[0]; draw(); }; });
       $('rmGo').onclick = function () {
-        var n = Math.round(num($('rmQty').value)), have = num(cur.qty), target = have - n, id = 'RM' + uid();
-        if (n < 1) return toast('Enter how many', 'bad');
-        if (target < 0) return toast(cur.loc + ' only has ' + have, 'bad');
+        var have = num(cur.qty), target = Math.round(num($('rmQty').value)), id = 'RM' + uid();
+        if ($('rmQty').value === '' || target < 0) return toast('Enter the right quantity', 'bad');
+        if (target === have) return toast('Same as now, nothing to change', 'bad');
         $('rmGo').disabled = true;
-        api('count', { id: id, loc: cur.loc, sku: sku, counted: target, attempt: 2, counter: 'Removed by mistake (' + cfg.user + ')' }).then(function () {
+        api('count', { id: id, loc: cur.loc, sku: sku, counted: target, attempt: 2, counter: 'Quantity fixed (' + cfg.user + ')' }).then(function () {
           return api('resolveCount', { id: id, accept: true, counted: target, device: cfg.device });
         }).then(function () {
           cur.qty = String(target); closeModal(); renderAll(); if (sel && sel.sku === sku) renderPart();
-          toast('Removed ' + n + ' from ' + cur.loc + ' (now ' + target + '). Logged as a correction, not as used.', 'good');
+          toast(cur.loc + ' fixed: ' + have + ' → ' + target + '. Logged as a correction, not as used.', 'good');
         }).catch(function (e) { $('rmGo').disabled = false; toast(e.business ? e.message : 'Removing needs a connection. Try again.', 'bad'); });
       };
     };
     draw();
+  }
+  /** Supervisor: delete a box or bin made by mistake.  Tap twice to confirm. */
+  function askDeleteBox(loc) {
+    loc = normLoc_(loc);
+    var rows = inBox(loc), pcs = rows.reduce(function (a, r) { return a + num(r.qty); }, 0);
+    modal('<h3 class="formtitle">🗑 Delete box ' + esc(loc) + '?</h3>' +
+      '<p class="hint">' + (rows.length ? rows.map(function (r) { return esc(P[r.sku].name) + ' <b>(' + num(r.qty) + ')</b>'; }).join(' · ') : '<i>empty</i>') + '</p>' +
+      '<div class="warn">Only for a box made by mistake. The box, its place and its label are removed.' + (pcs ? ' The <b>' + pcs + ' pcs</b> in it are taken off the stock (History shows "Box deleted").' : '') + '<br>Wrong number only? Use <b>✏ Fix quantity</b> instead.</div>' +
+      '<div class="btns"><button type="button" class="big" data-x="close">Cancel</button><button type="button" class="big bad" data-x="stay" id="delGo">🗑 Delete</button></div>');
+    var armed = false;
+    $('delGo').onclick = function () {
+      if (!armed) { armed = true; $('delGo').textContent = 'Tap again to delete ' + loc; return; }
+      $('delGo').disabled = true;
+      api('deleteBox', { loc: loc, device: cfg.device }).then(function () {
+        closeModal(); sel = null; toast(loc + ' deleted.', 'good'); return refresh();
+      }).catch(function (e) {
+        $('delGo').disabled = false;
+        toast(/Unknown request/.test(e.message || '') ? 'The server needs the new backend files first (paste and deploy).' : (e.business ? e.message : 'Deleting needs a connection. Try again.'), 'bad');
+      });
+    };
   }
   function chooseInBox(box, cb, filter) {
     var rows = inBox(box).filter(filter || function () { return true; });
@@ -1030,7 +1051,7 @@
       h += (st.locs.length ? '<label class="lbl">Where it is</label>' + boxChips(st) : '') +
         (st.locs.length ? '<div class="wayrow"><button type="button" class="photobtn wayBtn" id="doWay">🧭 Show me the way</button><button type="button" class="photobtn" id="doPlace">📍 Box place</button></div>' : '') +
         '<div class="bigacts"><button type="button" class="big go" id="doOut">− Take out</button><button type="button" class="big ok" id="doAdd">+ Add stock</button></div>' +
-        '<details class="more"><summary>More</summary><div class="moreacts"><button type="button" data-mode="RETURN">↩ Return</button><button type="button" data-mode="SCRAP">✕ Damaged</button><button type="button" data-mode="MOVE">⇄ Move to another box</button>' + (isSup() ? '<button type="button" id="doRemove" class="rmv">🧹 Remove (mistake)</button>' : '') + '</div></details>';
+        '<details class="more"><summary>More</summary><div class="moreacts"><button type="button" data-mode="RETURN">↩ Return</button><button type="button" data-mode="SCRAP">✕ Damaged</button><button type="button" data-mode="MOVE">⇄ Move to another box</button>' + (isSup() ? '<button type="button" id="doRemove" class="rmv">✏ Fix quantity (mistake)</button><button type="button" id="doDelBox" class="rmv">🗑 Delete this box</button>' : '') + '</div></details>';
     } else {
       var title = { OUT: 'Take out', ADD: 'Add stock', RETURN: 'Return unused parts', SCRAP: 'Write off damaged parts', MOVE: 'Move to another box' }[mode];
       h += '<h4 class="formtitle">' + title + '</h4>';
@@ -1087,6 +1108,7 @@
       };
       $('doAdd').onclick = function () { sel.mode = 'ADD'; sel.pick = null; sel.kind = sel.box ? kindOf(sel.box) : 'BIN'; renderPart(); };
       if ($('doRemove')) $('doRemove').onclick = function () { var sku = p.sku, box = sel.box; askRemove(sku, box); };
+      if ($('doDelBox')) $('doDelBox').onclick = function () { var box = sel.box || ((BY[p.sku] || [])[0] || {}).loc; if (!box) return toast('Tap a box first', 'bad'); askDeleteBox(box); };
       qsa('#modalBody [data-mode]').forEach(function (b) {
         b.onclick = function () {
           if (b.dataset.mode !== 'RETURN' && !st.locs.length) return toast('This part is not in any box yet.', 'bad');
@@ -2936,7 +2958,9 @@
     var what = rows.map(function (x) { return esc(P[x.sku].name) + ' <b>(' + num(x.qty) + ')</b>'; }).join(' · ') || '<i>empty now</i>';
     if (!pl || !r) {
       modal('<h3 class="formtitle">📍 Where is ' + esc(loc) + '?</h3><p class="hint">' + what + '</p><div class="warn">This box has no place on a rack yet.</div>' +
-        '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big ok" data-x="stay" id="whSet">📍 Set its place</button></div>');
+        '<div class="btns"><button type="button" class="big" data-x="close">Close</button><button type="button" class="big ok" data-x="stay" id="whSet">📍 Set its place</button></div>' +
+        (isSup() ? '<p class="hint" style="text-align:center"><button type="button" class="pvbtn" id="whDel">🗑 Delete box</button></p>' : ''));
+      if ($('whDel')) $('whDel').onclick = function () { askDeleteBox(loc); };
       $('whSet').onclick = function () { askPlace(loc, function () { whereBox(loc); }); };
       return;
     }
@@ -2947,7 +2971,10 @@
       '<div id="whRack" class="whrack">' + rackSvg(r, pl, loc, rackOcc(r.id, loc)) + '</div>' +
       '<p class="hint">Yellow = this box. Grey = other boxes on the rack.</p>' +
       '<div class="btns"><button type="button" class="big" data-x="close">Close</button>' + (rows.length ? '<button type="button" class="big go" data-x="stay" id="whWay">🧭 Show me the way</button>' : '') + '</div>' +
-      '<p class="hint" style="text-align:center"><button type="button" class="pvbtn" id="whMove">📍 Change place</button></p>');
+      '<p class="hint" style="text-align:center"><button type="button" class="pvbtn" id="whMove">📍 Change place</button>' +
+      (isSup() ? ' <button type="button" class="pvbtn" id="whFix">✏ Fix quantity</button> <button type="button" class="pvbtn" id="whDel">🗑 Delete box</button>' : '') + '</p>');
+    if ($('whFix')) $('whFix').onclick = function () { if (!rows.length) return toast('The box is empty', 'bad'); askRemove(rows[0].sku, loc); };
+    if ($('whDel')) $('whDel').onclick = function () { askDeleteBox(loc); };
     if ($('whWay')) $('whWay').onclick = function () { closeModal(); showWay(rows[0].sku, loc); };
     $('whMove').onclick = function () { askPlace(loc, function () { whereBox(loc); }); };
   }

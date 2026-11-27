@@ -20,7 +20,7 @@ var ADMIN_NAME = 'Admin';
 var ROLES = { mechanic: 'Mechanic', supervisor: 'Supervisor' };
 /** Only supervisors may run these.  Mechanics can take, return, damaged, receive, restock, seal, count and add new parts
  *  (changing an existing part is checked in savePart). */
-var SUPERVISOR_OPS = { resolveCount: 1, saveLocation: 1, saveLocations: 1, addStaff: 1, setStaff: 1, saveMap: 1 };
+var SUPERVISOR_OPS = { deleteBox: 1, resolveCount: 1, saveLocation: 1, saveLocations: 1, addStaff: 1, setStaff: 1, saveMap: 1 };
 /** These never need a sign-in (the sign-in screen needs the list of names). */
 var PUBLIC_OPS = { staffNames: 1 };
 
@@ -228,6 +228,20 @@ Core.prototype.saveLocation = function (p) {
   }
   this.s.bump();
   return { ok: true, version: this.s.version() };
+};
+
+/** Delete a box or bin made by mistake (supervisor).  Pieces still in it are logged as ADJUST (taken off),
+ *  then its rows are cleared from Locations.  p = {loc, by, device} */
+Core.prototype.deleteBox = function (p) {
+  var id = normLoc_(p.loc), self = this, now = this.nowIso(), rows = this.boxRows_(id);
+  if (!rows.length) fail_('No box ' + id);
+  rows.slice().forEach(function (r) {
+    var q = Math.round(num_(r.qty));
+    if (r.sku && q !== 0) self.log_({ id: 'DEL-' + id + '-' + r.sku + '-' + Date.now(), ts: now, type: 'ADJUST', sku: r.sku, to_loc: id, qty: -q, mechanic: p.by, note: 'Box deleted (mistake), had ' + q, device: p.device });
+    self.s.clear('Locations', r);
+  });
+  this.s.bump();
+  return { ok: true, deleted: id, version: this.s.version() };
 };
 
 /** Many locations at once (year-end count / first load).  p = {rows: [{loc, sku, qty, min}], by} */
@@ -475,6 +489,7 @@ Core.prototype.handle = function (op, p, who) {
     case 'markPrinted': return this.markPrinted(p);
     case 'saveMap': return this.saveMap(p);
     case 'setPlace': return this.setPlace(p);
+    case 'deleteBox': return this.deleteBox(p);
     case 'history': return this.history(p);
     case 'addStaff': return this.addStaff(p);
     case 'setStaff': return this.setStaff(p, who);
