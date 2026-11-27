@@ -13,13 +13,14 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.57 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.58 (2026-11-27)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
   function money(v, cur) { return v == null ? '—' : (cur || '€') + ' ' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   var QR_LIB = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
   var SCAN_LIB = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+  var THREE_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';   // only loaded for the 3D walk
 
   /* ---------------- small helpers ---------------- */
   var $ = function (id) { return document.getElementById(id); };
@@ -1860,11 +1861,21 @@
       '<li>Count the ' + (kindPlural || 'boxes') + ' from your left: <b>' + ordinal(pl.slot) + ' ' + (kindName || 'box') + '</b>, label <b class="mono">' + esc(l.loc) + '</b>.</li>' +
       '<li>Take <b>' + esc(p.name) + '</b> (' + num(l.qty) + ' in that box). Then use <b>− Take out</b> in the app.</li></ol>' +
       '<div class="btns"><button type="button" class="big" id="wayAgain">▶ Walk again</button><button type="button" class="big go" id="wayOpen">Open the part</button></div>' +
+      '<button type="button" class="big walk3d" id="way3d">🎥 Walk there in 3D</button>' +
       '<p class="hint" style="text-align:center">Box moved? <button type="button" class="pvbtn" id="wayMove">📍 Change place of ' + esc(l.loc) + '</button></p></div>';
     bindPicker();
     $('wayAgain').onclick = function () { animateWalk(path); };
     $('wayOpen').onclick = function () { openPart(p.sku, l.loc); };
     $('wayMove').onclick = function () { askPlace(l.loc, renderMap); };
+    $('way3d').onclick = function () {
+      if (!path) return toast('There is no free walkway to this rack on the map yet.', 'bad');
+      var btn = this; btn.disabled = true; btn.textContent = 'Loading 3D…';
+      loadScript(THREE_LIB).then(function () {
+        Walk3D.open({ map: m, path: path, rack: r, layers: layersOf(r), shelf: pl.shelf, slot: pl.slot, code: l.loc, partName: p.name,
+          rackLabel: rackNo(r), things: THINGS, rackStyle: function (x) { return { label: rackNo(x), color: mkCol(rackModelOf(x)) }; } });
+      }).catch(function (e) { toast(/3D/.test(e.message || '') ? e.message : 'The 3D walk needs internet the first time it opens.', 'bad'); })
+        .then(function () { btn.disabled = false; btn.textContent = '🎥 Walk there in 3D'; });
+    };
     animateWalk(path);
   }
   $('mapQ').addEventListener('input', function () {
