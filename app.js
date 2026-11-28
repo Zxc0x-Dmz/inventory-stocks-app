@@ -13,7 +13,7 @@
     UNI: { name: 'Universal / shared', kind: 'All models' }
   };
   var SYSTEMS = { ELC: 'Electrical', WHL: 'Wheels & brakes', BDY: 'Body & frame', DRV: 'Drivetrain', FST: 'Fasteners' };
-  var APP_VERSION = '2.65 (2026-11-27)';   // shown on the sign-in and Setup screens
+  var APP_VERSION = '2.66 (2026-11-28)';   // shown on the sign-in and Setup screens
   var COUNT_EVERY = { A: 14, B: 31, C: 92 };
   var USD_PER_EUR = 1.123, AED_PER_USD = 3.6725, AED_PER_EUR = USD_PER_EUR * AED_PER_USD;
   function price(p) { var v = p && p.price_eur; return v === '' || v == null || !isFinite(Number(v)) ? null : Number(v); }
@@ -2295,7 +2295,7 @@
     $('mapEdit').style.display = '';
     var gaps = rackGaps(m);
     $('mapEdit').innerHTML = (gaps.missing.length ? '<div class="warn">Rack numbers have gaps: ' + esc(gaps.missing.join(', ')) + ' missing, ' + esc(gaps.extra.join(', ')) + ' above R' + ('0' + m.racks.length).slice(-2) + '. <button type="button" id="fixRackNums">🔢 Number them 1–' + m.racks.length + '</button></div>' : '') +
-      '<div class="tools"><button type="button" id="rackNums">🔢 Rack numbers</button></div><div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button>' +
+      '<div class="tools"><button type="button" id="rackNums">🔢 Rack numbers</button></div><div class="tools"><b>Add:</b> <button type="button" data-add="rack">▭ Rack' + (free.length ? ' (' + free[0] + ')' : '') + '</button><button type="button" data-add="wallbins">▦ Wall bins (3×7)</button>' +
       Object.keys(THINGS).map(function (k) { return '<button type="button" data-add="' + k + '">' + THINGS[k].name + '</button>'; }).join('') + '</div>' +
       '<div class="tools"><span class="grp">Room ' + num2('Width', m.W, .5, 'm') + num2('Depth', m.H, .5, 'm') + '</span></div>' +
       '<p class="hint">On a laptop: <b>Ctrl+Z</b> undo, <b>Ctrl+Y</b> redo, <b>Ctrl+S</b> save, <b>Ctrl+A</b> select all, <b>Shift+click</b> select several, <b>Ctrl+C / Ctrl+V</b> copy and paste, <b>Delete</b> remove, <b>arrows</b> move, <b>R</b> turn 90°, <b>?</b> all shortcuts.</p>' +
@@ -2398,7 +2398,10 @@
 
     qsa('#mapEdit [data-add]').forEach(function (b) { b.onclick = function () {
       var k = b.dataset.add, cx = r2(m.W / 2, .5), cy = r2(m.H / 2, .5);
-      if (k === 'rack') {
+      if (k === 'wallbins') {   // small bins hanging on a wall: a thin rack, 3 layers of 7 bins, change it like any rack
+        if (!free.length) return toast('All 40 rack numbers are on the map', 'bad');
+        var wb = { id: free[0], x: cx, y: cy, w: 1.4, d: .25, a: 0, model: '', name: 'Wall bins' }; setLayers(wb, [{ t: 'BIN', n: 7 }, { t: 'BIN', n: 7 }, { t: 'BIN', n: 7 }]); m.racks.push(wb); e.sel = 'r' + free[0];
+      } else if (k === 'rack') {
         if (!free.length) return toast('All 40 rack numbers are on the map', 'bad');
         var nr = { id: free[0], x: cx, y: cy, w: 2, d: .5, a: 0, model: rackModel[free[0]] || '' }; setLayers(nr, [{ t: 'BIN', n: 6 }, { t: 'BIN', n: 6 }, { t: 'BIN', n: 6 }, { t: 'BIN', n: 6 }, { t: 'TOTE', n: 4 }, { t: 'TOTE', n: 4 }, { t: 'TOTE', n: 4 }]); m.racks.push(nr); e.sel = 'r' + free[0];
       } else {
